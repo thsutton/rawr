@@ -1,4 +1,3 @@
-
 -- |
 -- Module: Data.BitMap.Roaring
 -- Description: Compressed bitmap data structure with good performance.
@@ -26,24 +25,44 @@
 --
 module Data.BitMap.Roaring where
 
+import Data.Bits
+import Data.Convertible
+import Data.Monoid
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as U
 import Data.Word
 
 -- | A set of bits.
-data BitMap = BitMap
+data BitMap = BitMap (Vector Chunk)
 
 type Key = Word32
 
--- * Operators
-
--- | See 'difference'.
-(\\) :: BitMap -> BitMap -> BitMap
-a \\ _ = a
+-- | A chunk representing the keys which share particular 16 high-order bits.
+--
+-- Chunk with low density (i.e. no more than 4096 members) are represented as a
+-- sorted array of their low 16 bits. Chunks with high density (i.e. more than
+-- 4096 members) are represented by a bit vector.
+--
+-- Both high and low density chunks include the high order bits shared by all
+-- entries in the chunk, and the cardinality of the chunk.
+data Chunk
+    = LowDensity
+        { chunkIndex       :: Word16
+        , chunkCardinality :: Int
+        , chunkArray       :: U.Vector Word16
+        }
+    | HighDensity
+        { chunkIndex       :: Word16
+        , chunkCardinality :: Int
+        , chunkBits        :: U.Vector Word64
+        }
 
 -- * Query
 
 -- | Is the set empty?
 null :: BitMap -> Bool
-null _ = False
+null (BitMap v) = V.null v
 
 -- | Cardinality of the set.
 size :: BitMap -> Int
@@ -74,7 +93,7 @@ select _ _ = Nothing
 
 -- | /O(1)./ The empty set.
 empty :: BitMap
-empty = BitMap
+empty = BitMap mempty
 
 -- | /O(1)./ A set of one element.
 singleton :: Key -> BitMap
@@ -82,7 +101,10 @@ singleton k = insert k empty
 
 -- | Add a value to the set.
 insert :: Key -> BitMap -> BitMap
-insert _ s = s
+insert k s@(BitMap _) =
+    let (i,b) = splitWord k
+        _c = maybe (chunkNew i b) (chunkSet b)
+    in s
 
 -- | Delete a value in the set.
 -- Returns the original set when the value was not present.
@@ -126,3 +148,27 @@ toDescList _ = []
 
 fromAscList :: [Key] -> BitMap
 fromAscList _ = empty
+
+-- * Utility
+
+-- | Split a 'Word32' into its high-order and low-order bits.
+splitWord :: Word32 -> (Word16, Word16)
+splitWord w =
+    let h = convert $ rotate (0xffff0000 .&. w) 16
+        l = convert $ 0x0000ffff .&. w
+    in (h,l)
+
+-- | Combine two 'Word16's of the high-order and low-order bits into a
+-- 'Word32'.
+combineWord :: Word16 -> Word16 -> Word32
+combineWord h l = rotate (convert h) (-16) .|. convert l
+
+-- | Create a new chunk.
+chunkNew :: Word16 -> Word16 -> Chunk
+chunkNew i v = LowDensity i 1 (U.singleton v)
+
+-- | Set a bit in a chunk.
+chunkSet :: Word16 -> Chunk -> Chunk
+chunkSet _v chunk = case chunk of
+    LowDensity  i c a -> LowDensity  i c a
+    HighDensity i c b -> HighDensity i c b
