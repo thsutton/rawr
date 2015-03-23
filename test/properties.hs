@@ -5,6 +5,7 @@ module Main where
 import Control.Monad
 import qualified Data.BitMap.Roaring as R
 import Data.List
+import Data.Monoid
 import qualified Data.Set as S
 import Data.Word
 import System.Exit
@@ -75,6 +76,14 @@ prop_map_elem_fromList :: NonEmptyList Word32 -> Bool
 prop_map_elem_fromList (NonEmpty l) =
     let r = R.fromList l
     in all (`R.member` r) l
+
+-- | union s1 s2 == fromList (toList s1 <> toList s2)
+prop_union_fromList :: NonEmptyList Word32 -> NonEmptyList Word32 -> Bool
+prop_union_fromList (NonEmpty as) (NonEmpty bs) =
+    let q = R.fromList as
+        r = R.fromList bs
+        qr = R.fromList (as <> bs)
+    in (R.toAscList qr == R.toAscList (q `R.union` r))
 
 --
 -- Use Template Haskell to automatically run all of the properties above.

@@ -68,7 +68,7 @@ instance Ord Chunk where
 
 -- * Query
 
--- | Is the set empty?
+-- | /O(1)./ Is the set empty?
 null :: BitMap -> Bool
 null (BitMap v) = V.null v
 
@@ -95,11 +95,11 @@ isProperSubsetOf a b = a `isSubsetOf` b && not (b `isSubsetOf` a)
 
 -- | Count the bits set in the range [0,i].
 rank :: BitMap -> Int -> Int
-rank _ _ = 0
+rank (BitMap _cs) _ = 0
 
 -- | Find the index of the ith set bit.
 select :: BitMap -> Int -> Maybe Key
-select _ _ = Nothing
+select (BitMap _cs) _ = Nothing
 
 -- * Construction
 
@@ -122,8 +122,6 @@ insert k (BitMap v) =
 -- | Delete a value in the set.
 --
 -- Returns the original set when the value was not present.
---
--- TODO(thsutton) Delete chunk when it's empty.
 delete :: Key -> BitMap -> BitMap
 delete k (BitMap v) =
     let (i,b) = splitWord k
@@ -141,15 +139,20 @@ delete k (BitMap v) =
 
 -- | The union of two sets.
 union :: BitMap -> BitMap -> BitMap
-union _ _ = empty
+union (BitMap cs) (BitMap ds) = BitMap $ mergeWith f cs ds
+  where
+    f :: Maybe Chunk -> Maybe Chunk -> Maybe Chunk
+    f Nothing  b        = b
+    f a        Nothing  = a
+    f (Just a) (Just b) = Just $ mergeChunks a b
 
 -- | The difference between two sets.
 difference :: BitMap -> BitMap -> BitMap
-difference _ b = b
+difference _ _ = empty
 
 -- | The intersection of two sets.
 intersection :: BitMap -> BitMap -> BitMap
-intersection _ b = b
+intersection _ _ = empty
 
 -- * Conversion
 
@@ -257,11 +260,26 @@ chunkToBits (HighDensity i _ a) = U.toList . U.concatMap f $ U.indexed a
 -- Postcondition: Output vector sorted by 'chunkIndex'.
 -- Postcondition: length(output) >= max(length(a),length(b))
 mergeWith
-    :: (Chunk -> Chunk -> Chunk) -- ^ Merge two chunks with the same index.
+    :: (Maybe Chunk -> Maybe Chunk -> Maybe Chunk)
+    -- ^ Merge two chunks with the same index.
     -> Vector Chunk
     -> Vector Chunk
     -> Vector Chunk
-mergeWith _ _ _ = mempty -- TODO(thsutton) implement
+mergeWith f v1 v2
+    | V.null v1 = v2
+    | V.null v2 = v1
+    | otherwise =
+        let a = V.head v1
+            b = V.head v2
+        in work a v1 b v2
+  where
+    -- Note: we take the head and the *entirety* of each vector; NOT the head
+    -- and the tail!
+    work :: Chunk -> Vector Chunk -> Chunk -> Vector Chunk -> Vector Chunk
+    work a as b bs = case a `compare` b of
+        LT -> a `V.cons` mergeWith f (V.tail as) bs
+        EQ -> mergeChunks a b `V.cons` mergeWith f (V.tail as) (V.tail bs)
+        GT -> b `V.cons` mergeWith f as (V.tail bs)
 
 -- | Take the union of two 'Chunk's, raising an 'error' if they do not share an
 -- index.
@@ -284,12 +302,24 @@ mergeChunks c1 c2 =
     merge (LowDensity  i _ al) (HighDensity _ _ ah) =
         let a' = U.foldr' aSet ah al in HighDensity i (aPop a') a'
     merge (LowDensity  i _ a1) (LowDensity  _ _ a2) =
-        let a' = a1 <> a2
+        let a' = vMerge a1 a2
             n' = U.length a'
         -- TODO(thsutton): Is this eager enough?
         in if n' <= 4096
             then LowDensity i n' a'
             else HighDensity i n' (packA a')
+
+vMerge :: (U.Unbox e, Ord e) => U.Vector e -> U.Vector e -> U.Vector e
+vMerge as bs
+    | U.null as = bs
+    | U.null bs = as
+    | otherwise =
+        let a = U.head as
+            b = U.head bs
+        in case a `compare` b of
+            LT -> a `U.cons` vMerge (U.tail as) bs
+            EQ -> a `U.cons` vMerge (U.tail as) (U.tail bs)
+            GT -> b `U.cons` vMerge as (U.tail bs)
 
 -- | Alter the 'Chunk' with the given index in a vector of 'Chunk's.
 --
