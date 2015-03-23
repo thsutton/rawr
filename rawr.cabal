@@ -25,7 +25,9 @@ library
   build-depends:
       base >=4.7 && <4.8
     , convertible
+    , containers
     , vector
+    , vector-algorithms
 
 test-suite             properties
   type:                exitcode-stdio-1.0
