@@ -4,6 +4,7 @@ module Main where
 
 import Control.Monad
 import qualified Data.BitMap.Roaring as R
+import qualified Data.BitMap.Roaring.Utility as R
 import Data.List
 import Data.Monoid
 import qualified Data.Set as S

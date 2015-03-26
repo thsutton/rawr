@@ -22,6 +22,8 @@ library
   hs-source-dirs:      lib
   exposed-modules:
     Data.BitMap.Roaring
+    Data.BitMap.Roaring.Chunk
+    Data.BitMap.Roaring.Utility
   build-depends:
       base >=4.7 && <4.8
     , convertible

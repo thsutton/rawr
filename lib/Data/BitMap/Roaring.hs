@@ -25,46 +25,19 @@
 --
 module Data.BitMap.Roaring where
 
-import Control.Applicative hiding (empty)
-import Data.Bits
-import Data.Convertible
 import Data.Monoid
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import qualified Data.Vector.Algorithms.Heap as VAH
-import qualified Data.Vector.Unboxed as U
 import Data.Word
+
+import Data.BitMap.Roaring.Chunk
+import Data.BitMap.Roaring.Utility
 
 -- | A set of bits.
 data BitMap = BitMap (Vector Chunk)
   deriving (Show)
 
 type Key = Word32
-
--- | A chunk representing the keys which share particular 16 high-order bits.
---
--- Chunk with low density (i.e. no more than 4096 members) are represented as a
--- sorted array of their low 16 bits. Chunks with high density (i.e. more than
--- 4096 members) are represented by a bit vector.
---
--- Both high and low density chunks include the high order bits shared by all
--- entries in the chunk, and the cardinality of the chunk.
-data Chunk
-    = LowDensity
-        { chunkIndex       :: Word16
-        , chunkCardinality :: Int
-        , chunkArray       :: U.Vector Word16
-        }
-    | HighDensity
-        { chunkIndex       :: Word16
-        , chunkCardinality :: Int
-        , chunkBits        :: U.Vector Word64
-        }
-  deriving (Eq,Show)
-
--- | 'Chunk's are ordered by their index.
-instance Ord Chunk where
-    compare c1 c2 = compare (chunkIndex c1) (chunkIndex c2)
 
 -- * Query
 
@@ -80,7 +53,7 @@ size (BitMap cs) = V.sum $ V.map chunkCardinality cs
 member :: Key -> BitMap -> Bool
 member k (BitMap cs) =
     let (i,b) = splitWord k
-    in case vLookup i cs of
+    in case vLookup (\c -> i == chunkIndex c) cs of
         Nothing    -> False
         Just (_,c) -> chunkGet b c
 
@@ -116,7 +89,7 @@ insert :: Key -> BitMap -> BitMap
 insert k (BitMap v) =
     let (i,b) = splitWord k
         f = Just . maybe (chunkNew i b) (chunkSet b)
-        v' = vAlter f i v
+        v' = vAlter f (\c -> i == chunkIndex c) v
     in BitMap v'
 
 -- | Delete a value in the set.
@@ -125,7 +98,7 @@ insert k (BitMap v) =
 delete :: Key -> BitMap -> BitMap
 delete k (BitMap v) =
     let (i,b) = splitWord k
-        v' = vAlter (f b) i v
+        v' = vAlter (f b) (\c -> i == chunkIndex c) v
     in BitMap v'
   where
     f _ Nothing = Nothing
@@ -193,66 +166,6 @@ fromAscList _ = empty
 
 -- * Utility
 
--- | Split a 'Word32' into its high-order and low-order bits.
-splitWord :: Word32 -> (Word16, Word16)
-splitWord w =
-    let h = convert $ rotate (0xffff0000 .&. w) 16
-        l = convert $ 0x0000ffff .&. w
-    in (h,l)
-
--- | Combine two 'Word16's of the high-order and low-order bits into a
--- 'Word32'.
-combineWord :: Word16 -> Word16 -> Word32
-combineWord h l = rotate (convert h) (-16) .|. convert l
-
--- | Create a new chunk.
-chunkNew :: Word16 -> Word16 -> Chunk
-chunkNew i v = LowDensity i 1 (U.singleton v)
-
--- | Set a bit in a chunk.
---
--- TODO(thsutton) Promote LowDensity chunk when it rises above threshold.
-chunkSet :: Word16 -> Chunk -> Chunk
-chunkSet v chunk = case chunk of
-    LowDensity  i c a -> LowDensity  i c (setL v a)
-    HighDensity i c a -> HighDensity i c (setH v a)
-  where
-    setL :: Word16 -> U.Vector Word16 -> U.Vector Word16
-    setL i a = uvInsert a i
-    setH :: Word16 -> U.Vector Word64 -> U.Vector Word64
-    setH _ a = a -- TODO(thsutton) implement
-
--- | Clear a bit in a 'Chunk'.
---
--- TODO(thsutton) Demote HighDensity chunk when it falls below threshold.
-chunkClear :: Word16 -> Chunk -> Chunk
-chunkClear v chunk = case chunk of
-    LowDensity i _ a ->
-        let a' = clearL v a
-            c' = U.length a'
-        in LowDensity  i c' a'
-    HighDensity i _ a ->
-        let a' = clearH v a
-            c' = U.sum $ U.map popCount a'
-        in HighDensity i c' a'
-  where
-    clearL :: Word16 -> U.Vector Word16 -> U.Vector Word16
-    clearL i a = uvDelete a i
-    clearH :: Word16 -> U.Vector Word64 -> U.Vector Word64
-    clearH _ a = a -- TODO(thsutton) implement
-
--- | Get a bit from a 'Chunk'.
-chunkGet :: Word16 -> Chunk -> Bool
-chunkGet v chunk = case chunk of
-    LowDensity  _ _ a -> U.elem v a
-    HighDensity{} -> False -- TODO(thsutton) implement
-
-chunkToBits :: Chunk -> [Word32]
-chunkToBits (LowDensity  i _ a) = combineWord i <$> U.toList a
-chunkToBits (HighDensity i _ a) = U.toList . U.concatMap f $ U.indexed a
-  where
-    f :: (Int, Word64) -> U.Vector Word32
-    f (_p,_bs) = U.map (combineWord i) U.empty
 
 -- | Merge two 'Vector's of 'Chunk's.
 --
@@ -280,122 +193,3 @@ mergeWith f v1 v2
         LT -> a `V.cons` mergeWith f (V.tail as) bs
         EQ -> mergeChunks a b `V.cons` mergeWith f (V.tail as) (V.tail bs)
         GT -> b `V.cons` mergeWith f as (V.tail bs)
-
--- | Take the union of two 'Chunk's, raising an 'error' if they do not share an
--- index.
-mergeChunks :: Chunk -> Chunk -> Chunk
-mergeChunks c1 c2 =
-    if chunkIndex c1 == chunkIndex c2
-        then merge c1 c2
-        else error "Attempting to merge incompatible chunks!"
-  where
-    aPop :: U.Vector Word64 -> Int
-    aPop = U.sum . U.map popCount
-    aSet :: Word16 -> U.Vector Word64 -> U.Vector Word64
-    aSet _i v = v
-    packA :: U.Vector Word16 -> U.Vector Word64
-    packA _ = mempty
-    merge (HighDensity i _ a1) (HighDensity _ _ a2) =
-        let a' = U.zipWith (.|.) a1 a2 in HighDensity i (aPop a') a'
-    merge (HighDensity i _ ah) (LowDensity  _ _ al) =
-        let a' = U.foldr' aSet ah al in HighDensity i (aPop a') a'
-    merge (LowDensity  i _ al) (HighDensity _ _ ah) =
-        let a' = U.foldr' aSet ah al in HighDensity i (aPop a') a'
-    merge (LowDensity  i _ a1) (LowDensity  _ _ a2) =
-        let a' = vMerge a1 a2
-            n' = U.length a'
-        -- TODO(thsutton): Is this eager enough?
-        in if n' <= 4096
-            then LowDensity i n' a'
-            else HighDensity i n' (packA a')
-
-vMerge :: (U.Unbox e, Ord e) => U.Vector e -> U.Vector e -> U.Vector e
-vMerge as bs
-    | U.null as = bs
-    | U.null bs = as
-    | otherwise =
-        let a = U.head as
-            b = U.head bs
-        in case a `compare` b of
-            LT -> a `U.cons` vMerge (U.tail as) bs
-            EQ -> a `U.cons` vMerge (U.tail as) (U.tail bs)
-            GT -> b `U.cons` vMerge as (U.tail bs)
-
--- | Alter the 'Chunk' with the given index in a vector of 'Chunk's.
---
--- The function is passed 'Nothing' if the 'Chunk' is not present.
---
--- If the function returns 'Nothing' the 'Chunk', if present, is deleted;
--- otherwise it is replaced.
-vAlter
-    :: (Maybe Chunk -> Maybe Chunk)
-    -> Word16
-    -> Vector Chunk
-    -> Vector Chunk
-vAlter f i v = case vLookup i v of
-    Nothing     -> case f Nothing of
-        Nothing -> v
-        Just c' -> vInsert v c' -- TODO(thsutton) Insert
-    Just (p, a) -> case f (Just a) of
-        Nothing -> vDelete v p
-        Just c' -> V.update v (V.singleton (p, c'))
-
--- | Search for a 'Chunk' with a specific index.
---
--- TODO(thsutton) better search algorithm.
-vLookup :: Word16 -> Vector Chunk -> Maybe (Int, Chunk)
-vLookup k v = case V.findIndex p v of
-    Nothing -> Nothing
-    Just i  -> Just (i, v V.! i)
-  where
-    p :: Chunk -> Bool
-    p c = k == chunkIndex c
-
--- | Insert a 'Chunk' into a vector, replacing the
---
--- Precondition: input vector is sorted.
--- Postcondition: output vector is sorted.
--- Postcondition: a `elem` v'.
---
--- TODO(thsutton): Efficiency.
-vInsert :: Ord a => Vector a -> a -> Vector a
-vInsert v a =
-    if a `V.elem` v
-    then v
-    else V.modify VAH.sort $ V.cons a v
-
--- | Delete the element at index.
---
--- Return the vector unchanged if the index is out of bounds.
-vDelete :: Vector a -> Int -> Vector a
-vDelete v p
-    | p < 0 = v
-    | V.length v < p = v
-    | otherwise = case V.splitAt p v of
-        (s, r) -> s <> V.tail r
-
--- | Insert a 'Chunk' into an unboxed vector.
---
--- Precondition: input vector is sorted.
--- Postcondition: output vector is sorted.
--- Postcondition: a `elem` v'.
---
--- TODO(thsutton): Efficiency.
-uvInsert :: (U.Unbox a, Ord a) => U.Vector a -> a -> U.Vector a
-uvInsert v a =
-    if a `U.elem` v
-    then v
-    else U.modify VAH.sort $ U.cons a v
-
--- | Delete an element from an unboxed vector.
---
--- Precondition: input vector is sorted.
--- Postcondition: output vector is sorted.
--- Postcondition: not $ a `elem` v'
---
--- TODO(thsutton): Efficiency.
-uvDelete :: (U.Unbox a, Ord a) => U.Vector a -> a -> U.Vector a
-uvDelete v a = case U.elemIndex a v of
-    Nothing -> v
-    Just p  -> case U.splitAt p v of
-        (s, r) -> s <> U.tail r
