@@ -1,4 +1,4 @@
-module Data.BitMap.Roaring.Utility where
+module Data.Roaring.Utility where
 
 import Data.Bits
 import Data.Convertible

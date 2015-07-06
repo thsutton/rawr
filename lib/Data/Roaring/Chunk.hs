@@ -1,4 +1,4 @@
-module Data.BitMap.Roaring.Chunk where
+module Data.Roaring.Chunk where
 
 import Control.Applicative
 import Data.Bits
@@ -6,7 +6,7 @@ import Data.Monoid
 import qualified Data.Vector.Unboxed as U
 import Data.Word
 
-import Data.BitMap.Roaring.Utility
+import Data.Roaring.Utility
 
 -- | A chunk representing the keys which share particular 16 high-order bits.
 --

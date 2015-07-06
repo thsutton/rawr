@@ -1,18 +1,18 @@
 -- |
--- Module: Data.BitMap.Roaring
+-- Module:      Data.Roaring
 -- Description: Compressed bitmap data structure with good performance.
--- Copyright: (c) Thomas Sutton 2015
--- License: BSD3
--- Maintainer: me@thomas-sutton.id.au
--- Stability: experimental
+-- Copyright:   (c) Thomas Sutton 2015
+-- License:     BSD3
+-- Maintainer:  me@thomas-sutton.id.au
+-- Stability:   experimental
 --
 -- A compressed bitmaps with good space and time performance.
 --
 -- These modules are intended to be imported qualified, to avoid name clashes
 -- with Prelude functions, e.g.
 --
--- >  import Data.BitMap.Roaring (BitMap)
--- >  import qualified Data.BitMap.Roaring as Roaring
+-- >  import Data.Roaring (BitMap)
+-- >  import qualified Data.Roaring as Roaring
 --
 -- The implementation paritions values into chunks based on their high 16 bits.
 -- Chunks are represented differently based on their density: low-density
@@ -23,15 +23,15 @@
 --    \"/Better bitmap performance with Roaring bitmaps/\", Software: Practice
 --    and Experience (to appear) <http://arxiv.org/pdf/1402.6407v4>
 --
-module Data.BitMap.Roaring where
+module Data.Roaring where
 
 import Data.Monoid
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.Word
 
-import Data.BitMap.Roaring.Chunk
-import Data.BitMap.Roaring.Utility
+import Data.Roaring.Chunk
+import Data.Roaring.Utility
 
 -- | A set of bits.
 data BitMap = BitMap (Vector Chunk)
