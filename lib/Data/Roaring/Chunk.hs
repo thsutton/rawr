@@ -80,7 +80,7 @@ chunkClear v chunk = case chunk of
         in HighDensity i c' a'
   where
     clearL :: Word16 -> U.Vector Word16 -> U.Vector Word16
-    clearL i a = uvDelete a i
+    clearL i a = vDelete a (fromIntegral i)
     clearH :: Word16 -> U.Vector Word64 -> U.Vector Word64
     clearH _ a = a -- TODO(thsutton) implement
 

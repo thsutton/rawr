@@ -1,9 +1,11 @@
+
+{-# LANGUAGE FlexibleContexts #-}
 module Data.Roaring.Utility where
 
 import Data.Bits
 import Data.Convertible
 import Data.Monoid
-import qualified Data.Vector as V
+import qualified Data.Vector.Generic as V
 import qualified Data.Vector.Algorithms.Heap as VAH
 import qualified Data.Vector.Unboxed as U
 import Data.Word
@@ -36,19 +38,34 @@ vMerge as bs
             EQ -> a `U.cons` vMerge (U.tail as) (U.tail bs)
             GT -> b `U.cons` vMerge as (U.tail bs)
 
+-- | Alter a value in a vector.
+--
+--   Modify the value at an index, if present. If the function returns
+--   'Just v', the item will be replaced with v.
+vAlter
+    :: (V.Vector v a)
+    => (a -> Maybe a)
+    -> Int
+    -> v a
+    -> v a
+vAlter f ix v =
+    case v V.!? ix >>= f of
+        Just x' -> v V.// [(ix, x')]
+        Nothing -> v
+
 -- | Alter the 'Chunk' with the given index in a vector of 'Chunk's.
 --
 -- The function is passed 'Nothing' if the 'Chunk' is not present.
 --
 -- If the function returns 'Nothing' the 'Chunk', if present, is deleted;
 -- otherwise it is replaced.
-vAlter
-    :: Ord a
+vAlterWith
+    :: (V.Vector v a, V.Vector v (Int, a), Ord a)
     => (Maybe a -> Maybe a )
     -> (a -> Bool)
-    -> V.Vector a
-    -> V.Vector a
-vAlter f p v = case vLookup p v of
+    -> v a
+    -> v a
+vAlterWith f p v = case vLookup p v of
     Nothing     -> case f Nothing of
         Nothing -> v
         Just c' -> vInsert v c' -- TODO(thsutton) Insert
@@ -59,7 +76,11 @@ vAlter f p v = case vLookup p v of
 -- | Search for a 'Chunk' with a specific index.
 --
 -- TODO(thsutton) better search algorithm.
-vLookup :: Ord a => (a -> Bool) -> V.Vector a -> Maybe (Int, a)
+vLookup
+    :: (V.Vector v a, Ord a)
+    => (a -> Bool)
+    -> v a
+    -> Maybe (Int, a)
 vLookup p v = case V.findIndex p v of
     Nothing -> Nothing
     Just i  -> Just (i, v V.! i)
@@ -71,7 +92,11 @@ vLookup p v = case V.findIndex p v of
 -- Postcondition: a `elem` v'.
 --
 -- TODO(thsutton): Efficiency.
-vInsert :: Ord a => V.Vector a -> a -> V.Vector a
+vInsert
+    :: (V.Vector v a, Ord a)
+    => v a
+    -> a
+    -> v a
 vInsert v a =
     if a `V.elem` v
     then v
@@ -80,12 +105,16 @@ vInsert v a =
 -- | Delete the element at index.
 --
 -- Return the vector unchanged if the index is out of bounds.
-vDelete :: Ord a => V.Vector a -> Int -> V.Vector a
+vDelete
+    :: (V.Vector v a, Ord a)
+    => v a
+    -> Int
+    -> v a
 vDelete v p
     | p < 0 = v
     | V.length v < p = v
     | otherwise = case V.splitAt p v of
-        (s, r) -> s <> V.tail r
+        (s, r) -> s V.++ V.tail r
 
 -- * Unboxed Vectors
 
@@ -101,16 +130,3 @@ uvInsert v a =
     if a `U.elem` v
     then v
     else U.modify VAH.sort $ U.cons a v
-
--- | Delete an element from an unboxed vector.
---
--- Precondition: input vector is sorted.
--- Postcondition: output vector is sorted.
--- Postcondition: not $ a `elem` v'
---
--- TODO(thsutton): Efficiency.
-uvDelete :: (U.Unbox a, Ord a) => U.Vector a -> a -> U.Vector a
-uvDelete v a = case U.elemIndex a v of
-    Nothing -> v
-    Just p  -> case U.splitAt p v of
-        (s, r) -> s <> U.tail r
