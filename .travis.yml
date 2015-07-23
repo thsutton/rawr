@@ -16,8 +16,8 @@ notifications:
 
 env:
   matrix:
-    - STACK_YAML=stack-7.8.yaml
-    - STACK_YAML=stack-7.10.yaml
+    - STACK_YAML=stack-2.14.yaml
+    - STACK_YAML=stack-2.18.yaml
 
 install:
  - travis_retry wget https://github.com/commercialhaskell/stack/releases/download/v0.1.2.0/stack-0.1.2.0-x86_64-linux.gz
