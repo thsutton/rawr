@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 -- |
 -- Module:      Data.Roaring
 -- Description: Compressed bitmap data structure with good performance.
@@ -25,171 +27,171 @@
 --
 module Data.Roaring where
 
+import Data.Bits
+import Data.Function
 import Data.Monoid
-import Data.Vector (Vector)
-import qualified Data.Vector as V
 import Data.Word
+import qualified Data.Vector                 as V
+import qualified Data.Vector.Generic         as VG
+import qualified Data.Vector.Mutable         as VM
+import qualified Data.Vector.Algorithms.Heap as S
+import qualified Data.Vector.Unboxed         as U
+import qualified Data.Vector.Unboxed.Mutable as UM
 
-import Data.Roaring.Chunk
 import Data.Roaring.Utility
 
--- | A set of bits.
-data BitMap = BitMap (Vector Chunk)
-  deriving (Show)
+-- * Bitmaps
 
-type Key = Word32
+newtype BitMap = BitMap (V.Vector Chunk)
+  deriving (Eq, Show)
 
--- * Query
+instance Monoid BitMap where
+    mempty = BitMap mempty
+    mappend = union
 
--- | /O(1)./ Is the set empty?
-null :: BitMap -> Bool
-null (BitMap v) = V.null v
-
--- | Cardinality of the set.
-size :: BitMap -> Int
-size (BitMap cs) = V.sum $ V.map chunkCardinality cs
-
--- | Is the value a member of the set?
-member :: Key -> BitMap -> Bool
-member k (BitMap cs) =
-    let (i,b) = splitWord k
-    in case vLookup (\c -> i == chunkIndex c) cs of
-        Nothing    -> False
-        Just (_,c) -> chunkGet b c
-
--- | Is this a subset?
--- @(s1 `isSubsetOf` s2)@ tells whether @s1@ is a subset of @s2.
-isSubsetOf :: BitMap -> BitMap -> Bool
-isSubsetOf _ _ = False
-
--- | Is this a proper subset? (i.e. a subset but not equal).
-isProperSubsetOf :: BitMap -> BitMap -> Bool
-isProperSubsetOf a b = a `isSubsetOf` b && not (b `isSubsetOf` a)
-
--- | Count the bits set in the range [0,i].
-rank :: BitMap -> Int -> Int
-rank (BitMap _cs) _ = 0
-
--- | Find the index of the ith set bit.
-select :: BitMap -> Int -> Maybe Key
-select (BitMap _cs) _ = Nothing
-
--- * Construction
-
--- | /O(1)./ The empty set.
-empty :: BitMap
-empty = BitMap mempty
-
--- | /O(1)./ A set of one element.
-singleton :: Key -> BitMap
-singleton k = insert k empty
-
--- | Add a value to the set.
-insert :: Key -> BitMap -> BitMap
-insert k (BitMap v) =
-    let (i,b) = splitWord k
-        f = Just . maybe (chunkNew i b) (chunkSet b)
-        v' = vAlter f (\c -> i == chunkIndex c) v
-    in BitMap v'
-
--- | Delete a value in the set.
---
--- Returns the original set when the value was not present.
-delete :: Key -> BitMap -> BitMap
-delete k (BitMap v) =
-    let (i,b) = splitWord k
-        v' = vAlter (f b) (\c -> i == chunkIndex c) v
-    in BitMap v'
-  where
-    f _ Nothing = Nothing
-    f b (Just c) =
-        let c' = chunkClear b c
-        in if 0 == chunkCardinality c'
-           then Nothing
-           else Just c'
-
--- * Combine
-
--- | The union of two sets.
+-- | Calculate the union of two 'BitMap's.
 union :: BitMap -> BitMap -> BitMap
-union (BitMap cs) (BitMap ds) = BitMap $ mergeWith f cs ds
-  where
-    f :: Maybe Chunk -> Maybe Chunk -> Maybe Chunk
-    f Nothing  b        = b
-    f a        Nothing  = a
-    f (Just a) (Just b) = Just $ mergeChunks a b
+union bm1@(BitMap v1) bm2@(BitMap v2)
+    | V.null v1 = bm2
+    | V.null v2 = bm2
+    | otherwise = BitMap (vMergeWith chunkMerge v1 v2)
 
--- | The difference between two sets.
-difference :: BitMap -> BitMap -> BitMap
-difference _ _ = empty
+isElem :: Word32 -> BitMap -> Bool
+isElem w (BitMap bm) =
+    let (h,l) = splitWord w
+    in error "isElem: unimplemented"
 
--- | The intersection of two sets.
-intersection :: BitMap -> BitMap -> BitMap
-intersection _ _ = empty
+-- * Chunks
 
--- * Conversion
-
--- ** List
-
-elems :: BitMap -> [Key]
-elems = toAscList
-
-toList :: BitMap -> [Key]
-toList = toAscList
-
-fromList :: [Key] -> BitMap
-fromList = foldl (flip insert) empty
-
--- ** Ordered list
-
--- | Produce a list of 'Key's in a 'BitMap', in descending order.
-toAscList :: BitMap -> [Key]
-toAscList (BitMap cs) = work cs []
-  where
-    work cs' l | V.null cs' = l
-               | otherwise = let c    = chunkToBits $ V.head cs'
-                                 cs'' = V.tail cs'
-                             in work cs'' (l <> c)
-
--- | Produce a list of 'Key's in a 'BitMap', in descending order.
-toDescList :: BitMap -> [Key]
-toDescList = reverse . toAscList
-
--- | Build a 'BitMap' from a list of 'Key's.
+-- | A set of 'Word32' values with a common 'Word16' prefix.
 --
--- Precondition: input is sorted ascending order.
+--   A sparse chunk contains relatively few elements which are stored in-order
+--   in a 'Vector'.
 --
--- TODO(thsutton) Throw error if precondition violated.
--- TODO(thsutton) Implement
-fromAscList :: [Key] -> BitMap
-fromAscList _ = empty
+--   A dense chunk contains relatively many elements which are stored as a bit
+--   string, also represented by a 'Vector'.
+data Chunk
+    = ChunkSparse
+    { chunkIndex :: Word16
+    , chunkData  :: U.Vector Word16
+    }
+    | ChunkDense
+    { chunkIndex :: Word16
+    , chunkData  :: U.Vector Word16
+    }
+  deriving (Eq, Show)
+
+-- | Chunks are ordered by index.
+instance Ord Chunk where
+    compare = compare `on` chunkIndex
+
+-- | Create a new, empty, 'Chunk'.
+chunkNew :: Word16 -> Chunk
+chunkNew ix = ChunkSparse ix mempty
+
+-- | Merge two 'Chunk's with the same index.
+--
+--   This function will 'error' when called on chunks with different indexes.
+chunkMerge :: Chunk -> Chunk -> Chunk
+chunkMerge c1 c2
+    | chunkIndex c1 /= chunkIndex c2 = error $ "chunkMerge: cannot merge chunks with different indexes: " <> show (chunkIndex c1) <> " and " <> show (chunkIndex c2)
+    | otherwise = chunkNormalise $ case (c1, c2) of
+        (ChunkDense  ix d1, ChunkDense  _ d2) -> ChunkDense ix (U.zipWith (.|.) d1 d2)
+        (ChunkDense  ix  _, ChunkSparse _ s2) -> U.foldl' (flip chunkInsert) c1 s2
+        (ChunkSparse ix s1, ChunkSparse _ s2) -> ChunkSparse ix (vMergeWith const s1 s2)
+        (ChunkSparse ix s1, ChunkDense  _  _) -> U.foldl' (flip chunkInsert) c2 s1
+
+-- | Check to see if a values is in a 'Chunk'.
+chunkElem :: Word16 -> Chunk -> Bool
+chunkElem v ChunkSparse{..} = v `U.elem` chunkData
+chunkElem v ChunkDense{..} =
+    let (w, n) = v `quotRem` 16
+    in testBit (chunkData U.! fromIntegral w) (fromIntegral n)
+
+-- | Insert a value into a 'Chunk'.
+chunkInsert :: Word16 -> Chunk -> Chunk
+chunkInsert val c = case c of
+    ChunkDense{..} ->
+        let (wd', bt') = val `quotRem` 16
+            wd = fromIntegral wd'
+            bt = fromIntegral bt'
+            newData = U.modify (\v -> UM.read v wd >>= \o -> UM.write v wd (setBit o bt)) chunkData
+        in c { chunkData = newData }
+    ChunkSparse{..} ->
+        -- TODO(thsutton): Use a binary search for membership testing and
+        -- insertion.
+        if val `U.elem` chunkData
+        then c
+        else let newData = U.modify S.sort $ val `U.cons` chunkData
+             in chunkNormalise $ c { chunkData = newData }
+
+-- | Determine the population of a 'Chunk'.
+chunkPop :: Chunk -> Int
+chunkPop ChunkSparse{..} = U.length chunkData
+chunkPop ChunkDense{..} = U.foldl' (\a w -> a + popCount w) 0 chunkData
+
+-- | Normalise a 'Chunk' based on the number of bits it contains.
+chunkNormalise :: Chunk -> Chunk
+chunkNormalise c =
+    let chunkSize = chunkPop c
+    in case c of
+        ChunkSparse{..}
+            | chunkSize > chunkThreshold -> ChunkDense chunkIndex (sparseToDense chunkData)
+            | otherwise -> c
+        ChunkDense{..}
+            | chunkSize < chunkThreshold -> ChunkSparse chunkIndex (denseToSparse chunkData)
+            | otherwise -> c
+
+-- | Convert a sparse 'Vector' into a dense 'Vector'.
+sparseToDense :: U.Vector Word16 -> U.Vector Word16
+sparseToDense = U.foldl' set (U.replicate 4096 0)
+  where
+    bit :: Word16 -> Word16
+    bit w = bit $ ((fromIntegral $ w .&. 0x000f) - 1)
+    set :: U.Vector Word16 -> Word16 -> U.Vector Word16
+    set v w = vAlter (\x -> Just $ x .&. bit w) (fromIntegral $ shiftR w 12) v
+
+-- | Convert a dense 'Vector' into a sparse 'Vector'.
+denseToSparse :: U.Vector Word16 -> U.Vector Word16
+denseToSparse v = v
+
+-- | Threshold above which a 'Chunk' is considered dense.
+chunkThreshold :: Int
+chunkThreshold = 4095
+
+{-
+
+# Dense Chunks
+
+There are 2^16 bits in a dense chunk, each representing the presence or absence
+of a 'Word16' value. These bits are stored in a 'Vector' of 'Word16' values (so
+as to line up with sparse chunks).
+
+-}
+
 
 -- * Utility
 
-
--- | Merge two 'Vector's of 'Chunk's.
+-- | Merge two 'Vector's.
 --
--- Precondition: Both vectors are sorted by 'chunkIndex'.
--- Postcondition: Output vector sorted by 'chunkIndex'.
--- Postcondition: length(output) >= max(length(a),length(b))
-mergeWith
-    :: (Maybe Chunk -> Maybe Chunk -> Maybe Chunk)
-    -- ^ Merge two chunks with the same index.
-    -> Vector Chunk
-    -> Vector Chunk
-    -> Vector Chunk
-mergeWith f v1 v2
-    | V.null v1 = v2
-    | V.null v2 = v1
+--   Elements are compared with lower elements being added to the result array,
+--   equal elements being merged using the supplied argument, and higher
+--   elements being retained for the next cycle.
+vMergeWith
+    :: (VG.Vector v a, Ord a)
+    => (a -> a -> a)
+    -> v a
+    -> v a
+    -> v a
+vMergeWith f as bs
+    | VG.null as = bs
+    | VG.null bs = as
     | otherwise =
-        let a = V.head v1
-            b = V.head v2
-        in work a v1 b v2
-  where
-    -- Note: we take the head and the *entirety* of each vector; NOT the head
-    -- and the tail!
-    work :: Chunk -> Vector Chunk -> Chunk -> Vector Chunk -> Vector Chunk
-    work a as b bs = case a `compare` b of
-        LT -> a `V.cons` mergeWith f (V.tail as) bs
-        EQ -> mergeChunks a b `V.cons` mergeWith f (V.tail as) (V.tail bs)
-        GT -> b `V.cons` mergeWith f as (V.tail bs)
+        let a   = VG.head as
+            as' = VG.tail as
+            b   = VG.head bs
+            bs' = VG.tail bs
+        in case a `compare` b of
+            LT ->  a        `VG.cons` (vMergeWith f as' bs )
+            EQ -> (a `f` b) `VG.cons` (vMergeWith f as' bs')
+            GT ->        b  `VG.cons` (vMergeWith f as  bs')
