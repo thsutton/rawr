@@ -49,18 +49,24 @@ module Data.BitMap (
     combineWord,
 ) where
 
+import           Control.Applicative ((<$>))
 import           Control.Monad
 import           Data.Bits
 import           Data.Function
 import           Data.Monoid
 import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Algorithms.Insertion as A
+import qualified Data.Vector.Algorithms.Search as A
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Word
-import           Prelude                     (Bool (..), Int, error, flip,
-                                              foldl, otherwise, quotRem, (+),
-                                              (<), (==), zip, snd, (++))
+import           Prelude                     (Bool(..), Eq(..), Int, Maybe(..),
+                                              Show(..),
+                                              compare, error, flip, foldl,
+                                              otherwise, quotRem, zip, snd,
+                                              (+), (++), (-), (<), (==), (/=))
 import qualified Prelude as P
 
 -- * Chunks
@@ -78,6 +84,7 @@ import qualified Prelude as P
 data Chunk
     = ChunkHigh { chunkIndex :: Word16, chunkData :: U.Vector Word16 }
     | ChunkLow  { chunkIndex :: Word16, chunkData :: U.Vector Word16 }
+  deriving (Show, Eq)
 
 -- | Population of a 'Chunk' before it is converted to high-density.
 threshold :: Int
@@ -87,8 +94,45 @@ threshold = 4095
 chunkEmpty :: Word16 -> Chunk
 chunkEmpty ix = ChunkLow ix mempty
 
+-- | A chunk containing a single value.
 chunkSingleton :: Word16 -> Word16 -> Chunk
 chunkSingleton ix d = ChunkLow ix (U.singleton d)
+
+-- | Check the size of a 'Chunk'.
+chunkSize :: Chunk -> Int
+chunkSize ChunkLow{chunkData=v} = U.length v
+chunkSize ChunkHigh{chunkData=v} = vPop v
+
+-- | Check whether a value is included in a chunk.
+chunkElem :: Word16 -> Chunk -> Bool
+chunkElem w ChunkLow{chunkData=v} = U.elem w v
+chunkElem w ChunkHigh{chunkData=v} =
+    let (wd', bt') = w `quotRem` 16
+        wd = convert wd
+        bt = convert bt'
+    in testBit (v U.! wd) bt
+
+-- | Insert a value into a chunk.
+--
+-- @chunkInsert w (chunkInsert w c) == chunkInsert w c@
+--
+-- @TODO(thsutton) Optimise correctly.
+chunkInsert :: Word16 -> Chunk -> Chunk
+chunkInsert w c
+    | chunkElem w c = c
+    | otherwise = case c of
+        ChunkLow{chunkData=v} -> c{chunkData = U.modify A.sort (U.cons w v)}
+        ChunkHigh{chunkData=v} -> c
+
+-- | Remove a value from a chunk.
+--
+-- @TODO(thsutton) Optimise correctly.
+chunkDelete :: Word16 -> Chunk -> Chunk
+chunkDelete w c
+    | chunkElem w c = case c of
+        ChunkLow{chunkData=v} -> c{chunkData = U.filter (/= w) v}
+        ChunkHigh{chunkData=v} -> c
+    | otherwise     = c
 
 -- | Inspect a chunk and normalise the representation based on the
 chunkNormalise :: Chunk -> Chunk
@@ -97,11 +141,6 @@ chunkNormalise c@ChunkLow{chunkData=v}
 chunkNormalise c@ChunkHigh{chunkData=v}
     | chunkSize c < threshold = c{chunkData = chunkCollapse v}
 chunkNormalise c = c
-
--- | Check the size of a 'Chunk'.
-chunkSize :: Chunk -> Int
-chunkSize ChunkLow{chunkData=v} = U.length v
-chunkSize ChunkHigh{chunkData=v} = vPop v
 
 -- | Convert a low density vector of words into a high density bitvector.
 chunkExpand :: U.Vector Word16 -> U.Vector Word16
@@ -140,6 +179,7 @@ vPop = G.foldl (\a v -> a + popCount v) 0
 
 -- | A Roaring Bitmap structure.
 data BitMap = BitMap (V.Vector Chunk)
+  deriving (Show, Eq)
 
 -- | Split a 'Word32' into 'Word16' of the high-order and low-order bits
 --  ('fst' and 'snd' respectively)
@@ -156,6 +196,44 @@ combineWord h l = rotate (convert h) (-16) .|. convert l
 convert :: (P.Integral a, P.Integral b) => a -> b
 convert = P.fromIntegral
 
+-- | Find a chunk in a bitmap with an index.
+--
+-- @TODO(thsutton) Use a binary search here.
+findChunk :: Word16 -> BitMap -> Maybe Int
+findChunk ix (BitMap v) = V.findIndex (\c -> ix == chunkIndex c) v
+
+-- | Insert a new chunk into a bitmap.
+--
+-- Precondition: no chunk with the index exists in the bitmap.
+-- Postcondition: new chunk is present in bitmap, in sorted order.
+insertChunk :: Chunk -> BitMap -> BitMap
+insertChunk c (BitMap v) =
+    BitMap (V.modify (A.sortBy (compare `on` chunkIndex)) (V.cons c v))
+
+-- | Modify a chunk in a bitmap.
+modifyChunk :: Word16 -> (Maybe Chunk -> Maybe Chunk) -> BitMap -> BitMap
+modifyChunk ix f m@(BitMap v) =
+    let mi = findChunk ix m
+        mc = f ((v V.!) <$> mi)
+    in case (mi,mc) of
+         -- Do nothing
+         (Nothing, Nothing) -> m
+         -- Insert new chunk
+         (Nothing, Just c) -> insertChunk c m
+         -- Delete existing chunk
+         -- @TODO(thsutton) Move should be more efficient.
+         (Just i, Nothing) ->
+             let l = V.length v
+                 l' = l - 1
+                 ls = l - i - 1
+             in BitMap . V.take (l - 1) $ V.modify (\w -> do
+                 let t = MV.slice i ls w
+                 let s = MV.slice (i+1) ls w
+                 MV.move s t
+                 ) v
+         -- Replace existing chunk
+         (Just i, Just c) -> BitMap $ V.modify (\v -> MV.write v i c) v
+
 -- * Query
 
 null :: BitMap -> Bool
@@ -165,7 +243,11 @@ size :: BitMap -> Int
 size (BitMap v) = V.foldl (\a c -> a + chunkSize c) 0 v
 
 member :: Word32 -> BitMap -> Bool
-member e m = error "member is not implemented"
+member e m@(BitMap v) =
+    let (ix, w) = splitWord e
+    in case findChunk ix m of
+       Nothing -> False
+       Just i -> chunkElem w (v V.! i)
 
 -- * Construction
 
@@ -178,16 +260,23 @@ singleton w =
     in BitMap (V.singleton (chunkSingleton ix d))
 
 insert :: Word32 -> BitMap -> BitMap
-insert w (BitMap v) =
+insert w m@(BitMap v) =
     let (ix, d) = splitWord w
-        v' = v
-    in BitMap v'
+        f Nothing  = Just (chunkSingleton ix d)
+        f (Just c) = Just (chunkInsert d c)
+    in modifyChunk ix f m
 
 delete :: Word32 -> BitMap -> BitMap
-delete w (BitMap v) =
+delete w m =
     let (ix, d) = splitWord w
-        v' = v
-    in BitMap v'
+    in modifyChunk ix (f d) m
+  where
+    f _ Nothing = Nothing
+    f d (Just c) =
+        let c' = chunkDelete d c
+        in if chunkSize c' == 0
+           then Nothing
+           else Just (chunkNormalise c')
 
 -- * Combine
 
