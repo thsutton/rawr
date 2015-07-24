@@ -280,8 +280,15 @@ delete w m =
 
 -- * Combine
 
+-- | Merge two bitmaps.
+--
+-- @TODO(thsutton) Implement correctly.
 union :: BitMap -> BitMap -> BitMap
-union a b = error "union is undefined"
+union a b
+    | null a = b
+    | null b = a
+    | size a < size b = foldl (flip insert) b $ toList a
+    | otherwise = foldl (flip insert) a $ toList b
 
 unions :: [BitMap] -> BitMap
 unions = foldl union empty
@@ -308,8 +315,8 @@ toList = toAscList
 fromList :: [Word32] -> BitMap
 fromList = foldl (flip insert) empty
 
-toAscList :: BitMap -> [Word32]
-toAscList (BitMap v) = (V.foldl toDList id v) []
+toDescList :: BitMap -> [Word32]
+toDescList (BitMap v) = (V.foldl toDList id v) []
   where
     toDList :: ([Word32] -> [Word32]) -> Chunk -> [Word32] -> [Word32]
     toDList f ChunkLow{..} = unpackedDList chunkIndex chunkData . f
@@ -329,5 +336,5 @@ toAscList (BitMap v) = (V.foldl toDList id v) []
     unpackedDList :: Word16 -> U.Vector Word16 -> ([Word32] -> [Word32])
     unpackedDList ix v = U.foldl (\acc w-> (combineWord ix w:) . acc) id v
 
-toDescList :: BitMap -> [Word32]
-toDescList = P.reverse . toAscList
+toAscList :: BitMap -> [Word32]
+toAscList = P.reverse . toDescList
