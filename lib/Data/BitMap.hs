@@ -53,15 +53,15 @@ import           Control.Monad
 import           Data.Bits
 import           Data.Function
 import           Data.Monoid
-import qualified Data.Vector                 as V
-import qualified Data.Vector.Generic         as G
-import qualified Data.Vector.Unboxed         as U
+import qualified Data.Vector as V
+import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
 import           Data.Word
 import           Prelude                     (Bool (..), Int, error, flip,
                                               foldl, otherwise, quotRem, (+),
-                                              (<), (==), zip, snd)
-import qualified Prelude                     as P
+                                              (<), (==), zip, snd, (++))
+import qualified Prelude as P
 
 -- * Chunks
 
@@ -220,11 +220,25 @@ fromList :: [Word32] -> BitMap
 fromList = foldl (flip insert) empty
 
 toAscList :: BitMap -> [Word32]
-toAscList (BitMap v) = (V.foldl toDList (id) v) []
+toAscList (BitMap v) = (V.foldl toDList id v) []
   where
     toDList :: ([Word32] -> [Word32]) -> Chunk -> [Word32] -> [Word32]
-    toDList f ChunkLow{..} = (\l -> l) . f
-    toDList f ChunkHigh{..} = (\l -> l) . f
+    toDList f ChunkLow{..} = unpackedDList chunkIndex chunkData . f
+    toDList f ChunkHigh{..} = packedDList chunkIndex chunkData . f
+
+    packedDList :: Word16 -> U.Vector Word16 -> ([Word32] -> [Word32])
+    packedDList ix v = U.ifoldl (word ix) id v
+    word ix acc i w =
+        (abit 0) . (abit 1) . (abit 2) . (abit 3) . (abit 4) . (abit 5) .
+        (abit 6) . (abit 7) . (abit 8) . (abit 9) . (abit 10) . (abit 11) .
+        (abit 12) . (abit 13) . (abit 14) . (abit 15) . acc
+      where
+        c n = combineWord ix (rotate (convert i) 4 .|. convert n)
+        abit n l = if testBit w n then c n:l else l
+
+    -- Unpack a sparse vector into a dlist.
+    unpackedDList :: Word16 -> U.Vector Word16 -> ([Word32] -> [Word32])
+    unpackedDList ix v = U.foldl (\acc w-> (combineWord ix w:) . acc) id v
 
 toDescList :: BitMap -> [Word32]
-toDescList m = error "toDescList is undefined"
+toDescList = P.reverse . toAscList
