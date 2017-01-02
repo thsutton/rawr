@@ -29,6 +29,7 @@ env:
     - STACK_RESOLVER=lts-3
     - STACK_RESOLVER=lts-5
     - STACK_RESOLVER=lts-6
+    - STACK_RESOLVER=lts-7
 
 # Download the latest stack command.
 before_install:
@@ -42,13 +43,13 @@ install:
 # Here starts the actual work to be performed for the package under test; any
 # command which exits with a non-zero exit code causes the build to fail.
 script:
- - cabal check
- - cabal sdist
- - export SRC=$(cabal info . | awk '{print $2;exit}')
- - tar -xzf "dist/$SRC.tar.gz"
- - cd "$SRC"
- - travis_retry ../stack --no-terminal --resolver $STACK_RESOLVER setup
- - travis_retry ../stack --no-terminal --resolver $STACK_RESOLVER install --only-snapshot -j4 --verbosity info
- - ../stack --no-terminal --resolver $STACK_RESOLVER build
- - ../stack --no-terminal --resolver $STACK_RESOLVER haddock --no-haddock-deps
- - ../stack --no-terminal --resolver $STACK_RESOLVER test
+# - cabal check
+# - cabal sdist
+# - export SRC=$(cabal info . | awk '{print $2;exit}')
+# - tar -xzf "dist/$SRC.tar.gz"
+# - cd "$SRC"
+ - travis_retry ./stack --no-terminal --resolver $STACK_RESOLVER setup
+ - travis_retry ./stack --no-terminal --resolver $STACK_RESOLVER install --only-snapshot -j4 --verbosity info
+ - ./stack --no-terminal --resolver $STACK_RESOLVER build
+ - ./stack --no-terminal --resolver $STACK_RESOLVER haddock --no-haddock-deps
+ - ./stack --no-terminal --resolver $STACK_RESOLVER test
