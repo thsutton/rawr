@@ -1,6 +1,7 @@
-resolver: lts-6.7
+resolver: lts-7.14
 packages:
-- '.'
+- 'rawr'
+- 'rawr-format'
 extra-deps: []
 flags: {}
 extra-package-dbs: []

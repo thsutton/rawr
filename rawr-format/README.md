@@ -1,12 +1,13 @@
-Rawr
-====
+Rawr Format
+===========
 
 [![Build status][travis-badge]][travis-link]
 
-[*Rawr*][1] is a Haskell implementation of the [Roaring Bitmaps][2]
-data structure and [serialisation format][3]. Roaring Bitmaps are a
-compressed bitmap data structure offering better space and time
-performance than other compressed bitmaps in many situations.
+[*Rawr Format*][1] is a Haskell implementation of the Roaring Bitmaps
+[serialisation format][3]. Roaring Bitmaps are a compressed bitmap
+data structure offering better space and time performance than other
+compressed bitmaps in many situations. This library implements the
+interoperable serialisation format supported by many implementations.
 
 **Please note:** This is a work in progress and is not yet ready for
 use. When complete it will be released on Hackage.
