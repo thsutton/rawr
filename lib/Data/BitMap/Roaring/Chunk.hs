@@ -1,113 +1,189 @@
 module Data.BitMap.Roaring.Chunk where
 
-import Control.Applicative
-import Data.Bits
-import Data.Monoid
-import qualified Data.Vector.Unboxed as U
-import Data.Word
+import           Control.Applicative
+import           Control.Monad
+import           Control.Monad.Trans.State
+import           Data.Bits
+import           Data.Function
+import           Data.Monoid
+import qualified Data.Vector.Algorithms.Heap as S
+import qualified Data.Vector.Unboxed         as U
+import qualified Data.Vector.Unboxed.Mutable as M
+import           Data.Word
 
-import Data.BitMap.Roaring.Utility
+import           Data.BitMap.Roaring.Chunk.High (HDVector (..))
+import qualified Data.BitMap.Roaring.Chunk.High as H
+import           Data.BitMap.Roaring.Chunk.Low  (LDVector (..))
+import qualified Data.BitMap.Roaring.Chunk.Low  as L
+import           Data.BitMap.Roaring.Utility
+
+-- | Chunks are identified by a 'Word16' index.
+type Index = Word16
 
 -- | A chunk representing the keys which share particular 16 high-order bits.
 --
 -- Chunk with low density (i.e. no more than 4096 members) are represented as a
 -- sorted array of their low 16 bits. Chunks with high density (i.e. more than
 -- 4096 members) are represented by a bit vector.
---
--- Both high and low density chunks include the high order bits shared by all
--- entries in the chunk, and the cardinality of the chunk.
 data Chunk
     = LowDensity
-        { chunkIndex       :: Word16
-        , chunkCardinality :: Int
-        , chunkArray       :: U.Vector Word16
+        { chunkIndex :: Index
+        , chunkArray :: LDVector
         }
     | HighDensity
-        { chunkIndex       :: Word16
-        , chunkCardinality :: Int
-        , chunkBits        :: U.Vector Word64
+        { chunkIndex :: Index
+        , chunkBits  :: HDVector
         }
-  deriving (Eq,Show)
+  deriving (Eq, Show)
 
 -- | 'Chunk's are ordered by their index.
 instance Ord Chunk where
-    compare c1 c2 = compare (chunkIndex c1) (chunkIndex c2)
+    compare = compare `on` chunkIndex
+
+instance Bits Chunk where
+  bitSize _ = 2^16
+  bitSizeMaybe _ = Just (2^16)
+  isSigned _ = False
+
+  (.|.) = union
+  (.&.) = intersection
+
+  testBit (LowDensity ix a) i = L.testBit a (fromIntegral i)
+  testBit (HighDensity ix a) i = H.testBit a (fromIntegral i)
+
+  bit i = singleton (fromIntegral i)
+
+  popCount (LowDensity ix a) = L.popCount a
+  popCount (HighDensity ix a) = H.popCount a
+
+singleton :: Word32 -> Chunk
+singleton i =
+  let (ix, b) = splitWord i
+  in chunkNew ix b
 
 -- | Create a new chunk.
-chunkNew :: Word16 -> Word16 -> Chunk
-chunkNew i v = LowDensity i 1 (U.singleton v)
+chunkNew :: Index -> Word16 -> Chunk
+chunkNew i v = LowDensity i (L.singleton v)
 
--- | Extract the 'Word32's stored in a 'Chunk'.
-chunkToBits :: Chunk -> [Word32]
-chunkToBits (LowDensity  i _ a) = combineWord i <$> U.toList a
-chunkToBits (HighDensity i _ a) = U.toList . U.concatMap f $ U.indexed a
+-- | Add a word into a chunk.
+set :: Word16 -> Chunk -> Chunk
+set b c@(HighDensity i bs)
+    | H.testBit bs b = c
+    | otherwise      = HighDensity i (H.setBit bs b)
+set b c@(LowDensity i bs)
+    | L.testBit bs b       = c
+    | otherwise            = repackChunk $ LowDensity i (L.setBit bs b)
+
+toList :: Chunk -> [Word32]
+toList (LowDensity i bs) = map (combineWord i) $ L.toList bs
+toList (HighDensity i bs) = map (combineWord i) $ H.toList bs
+
+bits :: Word64 -> [Word16]
+bits w = foldr abit [] [0..63]
   where
-    f :: (Int, Word64) -> U.Vector Word32
-    f (_p,_bs) = U.map (combineWord i) U.empty
+    abit :: Int -> [Word16] -> [Word16]
+    abit i l = if testBit w i
+               then (fromIntegral i) : l
+               else l
 
+chunkCheck :: Word16 -> Chunk -> Bool
+chunkCheck w (LowDensity _ bs) = L.testBit bs w
+chunkCheck w (HighDensity _ bs) = H.testBit bs w
 
--- | Get a bit from a 'Chunk'.
-chunkGet :: Word16 -> Chunk -> Bool
-chunkGet v chunk = case chunk of
-    LowDensity  _ _ a -> U.elem v a
-    HighDensity{} -> False -- TODO(thsutton) implement
-
--- | Set a bit in a chunk.
---
--- TODO(thsutton) Promote LowDensity chunk when it rises above threshold.
 chunkSet :: Word16 -> Chunk -> Chunk
-chunkSet v chunk = case chunk of
-    LowDensity  i c a -> LowDensity  i c (setL v a)
-    HighDensity i c a -> HighDensity i c (setH v a)
-  where
-    setL :: Word16 -> U.Vector Word16 -> U.Vector Word16
-    setL i a = uvInsert a i
-    setH :: Word16 -> U.Vector Word64 -> U.Vector Word64
-    setH _ a = a -- TODO(thsutton) implement
+chunkSet w c@(HighDensity i bs)
+    | H.testBit bs w = c
+    | otherwise      = HighDensity i (H.setBit bs w)
+chunkSet w c@(LowDensity i bs)
+    | L.testBit bs w = c
+    | otherwise    = LowDensity i (L.setBit bs w)
 
--- | Clear a bit in a 'Chunk'.
---
--- TODO(thsutton) Demote HighDensity chunk when it falls below threshold.
 chunkClear :: Word16 -> Chunk -> Chunk
-chunkClear v chunk = case chunk of
-    LowDensity i _ a ->
-        let a' = clearL v a
-            c' = U.length a'
-        in LowDensity  i c' a'
-    HighDensity i _ a ->
-        let a' = clearH v a
-            c' = U.sum $ U.map popCount a'
-        in HighDensity i c' a'
-  where
-    clearL :: Word16 -> U.Vector Word16 -> U.Vector Word16
-    clearL i a = uvDelete a i
-    clearH :: Word16 -> U.Vector Word64 -> U.Vector Word64
-    clearH _ a = a -- TODO(thsutton) implement
+chunkClear w c
+    | chunkCheck w c =
+        case c of
+          LowDensity i bs  -> LowDensity i (L.clearBit bs w)
+          HighDensity i bs -> HighDensity i (H.clearBit bs w)
+    | otherwise = c
 
--- | Take the union of two 'Chunk's, raising an 'error' if they do not share an
--- index.
-mergeChunks :: Chunk -> Chunk -> Chunk
-mergeChunks c1 c2 =
-    if chunkIndex c1 == chunkIndex c2
-        then merge c1 c2
-        else error "Attempting to merge incompatible chunks!"
+-- | Take the union of two 'Chunk's.
+--
+-- Postcondition: popCount (a `union` b) >= (popCount a) + (popCount b)
+union :: Chunk -> Chunk -> Chunk
+union a b
+  | chunkIndex a == chunkIndex b = work a b
+  | otherwise = error "Cannot take union of chunks with different indexes!"
   where
-    aPop :: U.Vector Word64 -> Int
-    aPop = U.sum . U.map popCount
-    aSet :: Word16 -> U.Vector Word64 -> U.Vector Word64
-    aSet _i v = v
-    packA :: U.Vector Word16 -> U.Vector Word64
-    packA _ = mempty
-    merge (HighDensity i _ a1) (HighDensity _ _ a2) =
-        let a' = U.zipWith (.|.) a1 a2 in HighDensity i (aPop a') a'
-    merge (HighDensity i _ ah) (LowDensity  _ _ al) =
-        let a' = U.foldr' aSet ah al in HighDensity i (aPop a') a'
-    merge (LowDensity  i _ al) (HighDensity _ _ ah) =
-        let a' = U.foldr' aSet ah al in HighDensity i (aPop a') a'
-    merge (LowDensity  i _ a1) (LowDensity  _ _ a2) =
-        let a' = vMerge a1 a2
-            n' = U.length a'
-        -- TODO(thsutton): Is this eager enough?
-        in if n' <= 4096
-            then LowDensity i n' a'
-            else HighDensity i n' (packA a')
+    work (HighDensity i as) (HighDensity _ bs) =
+      HighDensity i (as `H.union` bs)
+    work (HighDensity i as) (LowDensity _ bs) =
+      HighDensity i (as `H.union` toHDVector bs)
+    work (LowDensity i as) (HighDensity _ bs) =
+      HighDensity i (toHDVector as `H.union` bs)
+    work (LowDensity i as) (LowDensity _ bs) =
+      repackChunk $ LowDensity i (as `L.union` bs)
+
+-- | Take the intersection of two 'Chunk's.
+--
+-- TODO: Maintain the density invariant.
+intersection a b
+  | chunkIndex a == chunkIndex b = work a b
+  | otherwise = error "Cannot take intersection of chunks with different indexes!"
+  where
+    work (LowDensity ia a) (LowDensity ib b) =
+      LowDensity ia (a `L.intersection` b)
+    work (HighDensity ia a) (LowDensity ib b) =
+      LowDensity ia (toLDVector a `L.intersection` b)
+    work (LowDensity ia a) (HighDensity ib b) =
+      LowDensity ia (a `L.intersection` toLDVector b)
+    work (HighDensity ia a) (HighDensity ib b) =
+      repackChunk $ HighDensity ia (a `H.intersection` b)
+
+xor :: Chunk -> Chunk -> Chunk
+xor a b
+    | chunkIndex a == chunkIndex b = work a b
+    | otherwise = error "Cannot take xor of chunks with different indexes!"
+  where
+    work :: Chunk -> Chunk -> Chunk
+    work (LowDensity ia as) (LowDensity ib bs) =
+      repackChunk $ LowDensity ia (as `L.xor` bs)
+    work (LowDensity ia as) (HighDensity ib bs) =
+      repackChunk $ HighDensity ia (toHDVector as `H.xor` bs)
+    work (HighDensity ia as) (LowDensity ib bs) =
+      repackChunk $ HighDensity ia (as `H.xor` toHDVector bs)
+    work (HighDensity ia as) (HighDensity ib bs) =
+      repackChunk $ HighDensity ia (as `H.xor` bs)
+
+-- * Queries
+
+null :: Chunk -> Bool
+null c = popCount c == 0
+
+-- * Utility
+
+-- | Repack a 'Chunk' to enforce the density invariant.
+repackChunk :: Chunk -> Chunk
+repackChunk c@(LowDensity ix v)
+    | L.popCount v >= 4096 = HighDensity ix (toHDVector v)
+    | otherwise = c
+repackChunk c@(HighDensity ix v)
+    | H.popCount v < 4096 = LowDensity ix (toLDVector v)
+    | otherwise = c
+
+-- | Pack a low-density vector into a high-density vector.
+toHDVector :: LDVector -> HDVector
+toHDVector (LDVector bs) = U.foldl' (\v b -> H.setBit v b) H.empty bs
+
+-- | Unpack a high-density vector to a low-density vector.
+toLDVector :: HDVector -> LDVector
+toLDVector v@(HDVector ws) =
+    let n = H.popCount v
+        bs = U.generate n (\i -> fromIntegral $ select i v)
+    in LDVector bs
+  where
+    -- | Select the nth set bit.
+    select :: Int -> HDVector -> Int
+    select i (HDVector v) =
+      let runningCount = evalState (U.mapM (\c -> modify (+ popCount c) >> get) v) 0
+          (p,r) = U.span (\a -> a < i) runningCount
+      in -1

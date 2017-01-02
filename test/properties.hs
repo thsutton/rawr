@@ -2,15 +2,15 @@
 
 module Main where
 
-import Control.Monad
-import Data.List
-import Data.Monoid
-import qualified Data.Set as S
-import Data.Word
-import System.Exit
-import Test.QuickCheck
+import           Control.Monad
+import           Data.List
+import           Data.Monoid
+import qualified Data.Set        as S
+import           Data.Word
+import           System.Exit
+import           Test.QuickCheck
 
-import qualified Data.BitMap.Roaring as R
+import qualified Data.BitMap.Roaring         as R
 import qualified Data.BitMap.Roaring.Utility as R
 
 -- * Check utility functions
