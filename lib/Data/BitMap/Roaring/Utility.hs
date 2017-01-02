@@ -42,14 +42,14 @@ vMerge = vMergeWith merge
 
 -- | Merge two sorted vectors.
 vMergeWith
-  :: (G.Vector vector e, Ord e)
-  => (Maybe e -> Maybe e -> Maybe e)
+  :: (G.Vector vector e, G.Vector vector r, Ord e)
+  => (Maybe e -> Maybe e -> Maybe r)
   -> vector e
   -> vector e
-  -> vector e
+  -> vector r
 vMergeWith f as bs
-    | G.null as = bs
-    | G.null bs = as
+    | G.null as = G.concatMap (\e -> maybe G.empty G.singleton $ f Nothing (Just e)) bs
+    | G.null bs = G.concatMap (\e -> maybe G.empty G.singleton $ f (Just e) Nothing) as
     | otherwise =
         let a = G.head as
             b = G.head bs
