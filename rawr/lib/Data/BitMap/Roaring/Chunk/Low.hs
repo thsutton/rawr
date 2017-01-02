@@ -69,9 +69,9 @@ intersection (LDVector as) (LDVector bs) =
     LDVector (vMergeWith merge as bs)
   where
     merge (Just a) (Just b) = Just a
-    merge (Just a) Nothing = Nothing
-    merge Nothing (Just b) = Nothing
-    merge Nothing Nothing = Nothing
+    merge (Just a) Nothing  = Nothing
+    merge Nothing (Just b)  = Nothing
+    merge Nothing Nothing   = Nothing
 
 -- | Take the union of two low-density vectors.
 --
@@ -81,8 +81,8 @@ union (LDVector v1) (LDVector v2) =
   LDVector (vMergeWith merge v1 v2)
   where
     merge (Just a) (Just b) = Just a
-    merge Nothing a = a
-    merge a Nothing = a
+    merge Nothing a         = a
+    merge a Nothing         = a
 
 -- | Take the exclusive-or of two low-density vectors.
 xor :: LDVector -> LDVector -> LDVector
@@ -91,7 +91,7 @@ xor (LDVector as) (LDVector bs) =
   where
     merge a Nothing = a
     merge Nothing b = b
-    merge _ _ = Nothing
+    merge _ _       = Nothing
 
 -- * Conversions
 

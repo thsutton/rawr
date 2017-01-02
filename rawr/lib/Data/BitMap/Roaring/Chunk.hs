@@ -48,12 +48,12 @@ instance Bits Chunk where
   (.|.) = union
   (.&.) = intersection
 
-  testBit (LowDensity ix a) i = L.testBit a (fromIntegral i)
+  testBit (LowDensity ix a) i  = L.testBit a (fromIntegral i)
   testBit (HighDensity ix a) i = H.testBit a (fromIntegral i)
 
   bit i = singleton (fromIntegral i)
 
-  popCount (LowDensity ix a) = L.popCount a
+  popCount (LowDensity ix a)  = L.popCount a
   popCount (HighDensity ix a) = H.popCount a
 
 singleton :: Word32 -> Chunk
@@ -75,7 +75,7 @@ set b c@(LowDensity i bs)
     | otherwise            = repackChunk $ LowDensity i (L.setBit bs b)
 
 toList :: Chunk -> [Word32]
-toList (LowDensity i bs) = combineWord i <$> L.toList bs
+toList (LowDensity i bs)  = combineWord i <$> L.toList bs
 toList (HighDensity i bs) = combineWord i <$> H.toList bs
 
 bits :: Word64 -> [Word16]
@@ -87,7 +87,7 @@ bits w = foldr abit [] [0..63]
                else l
 
 chunkCheck :: Word16 -> Chunk -> Bool
-chunkCheck w (LowDensity _ bs) = L.testBit bs w
+chunkCheck w (LowDensity _ bs)  = L.testBit bs w
 chunkCheck w (HighDensity _ bs) = H.testBit bs w
 
 chunkSet :: Word16 -> Chunk -> Chunk
