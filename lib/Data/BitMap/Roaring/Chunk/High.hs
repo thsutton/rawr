@@ -22,7 +22,7 @@ empty =
 -- | New high-density vector with a single bit set.
 singleton :: Word16 -> HDVector
 singleton i =
-    let (wi, bi) = (fromIntegral i) `divMod` 64
+    let (wi, bi) = fromIntegral i `divMod` 64
         mk i = if i == wi
           then B.bit bi
           else 0
@@ -33,13 +33,13 @@ singleton i =
 -- | Set a bit in a high-density vector.
 setBit :: HDVector -> Word16 -> HDVector
 setBit (HDVector bs) ix =
-    let (w, b) = (fromIntegral ix :: Int) `divMod` 64
+    let (w, b) = fromIntegral ix `divMod` 64
     in HDVector (U.modify (\v -> M.read v w >>= M.write v w . flip B.setBit b) bs)
 
 -- | Clear a bit in a high-density vector.
 clearBit :: HDVector -> Word16 -> HDVector
 clearBit (HDVector bs) ix =
-    let (w, b) = (fromIntegral ix :: Int) `divMod` 64
+    let (w, b) = fromIntegral ix `divMod` 64
     in HDVector (U.modify (\v -> M.read v w >>= M.write v w . flip B.clearBit b) bs)
 
 -- | Flip a bit in a high-density vector.
@@ -76,7 +76,7 @@ xor (HDVector as) (HDVector bs) =
 -- | Test a bit in a high-density vector.
 testBit :: HDVector -> Word16 -> Bool
 testBit (HDVector bs) ix =
-    let (wi, bi) = (fromIntegral ix) `divMod` 64
+    let (wi, bi) = fromIntegral ix `divMod` 64
     in B.testBit (bs U.! wi) bi
 
 -- | Query number of set bits.
@@ -90,5 +90,5 @@ toList :: HDVector -> [Word16]
 toList (HDVector v) = []
   where
     unpackWord :: Word64 -> [Word16]
-    unpackWord w = map fst . filter snd $ map (\bi -> (fromIntegral bi, B.testBit w bi)) [0..63]
+    unpackWord w = fmap fst . filter snd $ fmap (\bi -> (fromIntegral bi, B.testBit w bi)) [0..63]
 

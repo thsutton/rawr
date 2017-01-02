@@ -48,7 +48,7 @@ vMergeWith
   -> vector e
   -> vector r
 vMergeWith f as bs
-    | G.null as = G.concatMap (\e -> maybe G.empty G.singleton $ f Nothing (Just e)) bs
+    | G.null as = G.concatMap (maybe G.empty G.singleton . f Nothing . Just) bs
     | G.null bs = G.concatMap (\e -> maybe G.empty G.singleton $ f (Just e) Nothing) as
     | otherwise =
         let a = G.head as

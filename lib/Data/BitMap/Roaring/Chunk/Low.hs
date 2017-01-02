@@ -29,7 +29,7 @@ singleton b = LDVector (U.singleton b)
 setBit :: LDVector -> Word16 -> LDVector
 setBit lv@(LDVector bs) ix
     | testBit lv ix = lv
-    | otherwise = LDVector (U.modify (S.sortBy (compare)) $ U.cons ix bs)
+    | otherwise = LDVector (U.modify (S.sortBy compare) $ U.cons ix bs)
 
 -- | Clear a word in a low-density vector.
 --

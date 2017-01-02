@@ -9,3 +9,4 @@ import "hint" HLint.Generalise
 
 ignore "Use if"
 ignore "Use liftM"
+ignore "Use &&&"

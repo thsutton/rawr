@@ -75,15 +75,15 @@ set b c@(LowDensity i bs)
     | otherwise            = repackChunk $ LowDensity i (L.setBit bs b)
 
 toList :: Chunk -> [Word32]
-toList (LowDensity i bs) = map (combineWord i) $ L.toList bs
-toList (HighDensity i bs) = map (combineWord i) $ H.toList bs
+toList (LowDensity i bs) = combineWord i <$> L.toList bs
+toList (HighDensity i bs) = combineWord i <$> H.toList bs
 
 bits :: Word64 -> [Word16]
 bits w = foldr abit [] [0..63]
   where
     abit :: Int -> [Word16] -> [Word16]
     abit i l = if testBit w i
-               then (fromIntegral i) : l
+               then fromIntegral i : l
                else l
 
 chunkCheck :: Word16 -> Chunk -> Bool
@@ -172,7 +172,7 @@ repackChunk c@(HighDensity ix v)
 
 -- | Pack a low-density vector into a high-density vector.
 toHDVector :: LDVector -> HDVector
-toHDVector (LDVector bs) = U.foldl' (\v b -> H.setBit v b) H.empty bs
+toHDVector (LDVector bs) = U.foldl' H.setBit H.empty bs
 
 -- | Unpack a high-density vector to a low-density vector.
 toLDVector :: HDVector -> LDVector
@@ -185,5 +185,5 @@ toLDVector v@(HDVector ws) =
     select :: Int -> HDVector -> Int
     select i (HDVector v) =
       let runningCount = evalState (U.mapM (\c -> modify (+ popCount c) >> get) v) 0
-          (p,r) = U.span (\a -> a < i) runningCount
+          (p,r) = U.span (< i) runningCount
       in -1

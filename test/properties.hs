@@ -89,7 +89,7 @@ prop_union_fromList (NonEmpty as) (NonEmpty bs) =
     let q = R.fromList as
         r = R.fromList bs
         qr = R.fromList (as <> bs)
-    in (R.toAscList qr == R.toAscList (q `R.union` r))
+    in R.toAscList qr == R.toAscList (q `R.union` r)
 
 prop_intersection_fromList :: NonEmptyList Word32 -> NonEmptyList Word32 -> Bool
 prop_intersection_fromList (NonEmpty al) (NonEmpty bl) =
@@ -99,15 +99,15 @@ prop_intersection_fromList (NonEmpty al) (NonEmpty bl) =
         as = S.fromList al
         bs = S.fromList bl
         is = S.intersection as bs
-    in (R.toList im) == (S.toList is)
+    in R.toList im == S.toList is
 
 prop_ld_chunk_intersection :: NonEmptyList Word16 -> NonEmptyList Word16 -> Bool
 prop_ld_chunk_intersection (NonEmpty al) (NonEmpty bl) =
     let is = S.intersection (S.fromList al) (S.fromList bl)
         cc = C.chunkClear 0 (C.chunkNew 0 0)
-        fromList = foldl' (\c b -> C.chunkSet b c) cc
+        fromList = foldl' (flip C.chunkSet) cc
         ms = C.intersection (fromList al) (fromList bl)
-    in (C.toList ms) == (map fromIntegral $ S.toList is)
+    in C.toList ms == (fromIntegral <$> S.toList is)
 
 --
 -- Use Template Haskell to automatically run all of the properties above.
