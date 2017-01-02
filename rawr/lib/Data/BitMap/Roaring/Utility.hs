@@ -37,8 +37,8 @@ vMerge :: (G.Vector vector e, Ord e) => vector e -> vector e -> vector e
 vMerge = vMergeWith merge
   where
     merge :: Maybe e -> Maybe e -> Maybe e
-    merge Nothing a = a
-    merge a Nothing = a
+    merge Nothing a         = a
+    merge a Nothing         = a
     merge (Just a) (Just b) = Just a
 
 -- | Merge two sorted vectors.
@@ -57,13 +57,13 @@ vMergeWith f as bs
         in case a `compare` b of
             LT -> case f (Just a) Nothing of
                    Nothing -> vMergeWith f (G.tail as) bs
-                   Just r -> r `G.cons` vMergeWith f (G.tail as) bs
+                   Just r  -> r `G.cons` vMergeWith f (G.tail as) bs
             EQ -> case f (Just a) (Just b) of
                    Nothing -> vMergeWith f (G.tail as) (G.tail bs)
                    Just r -> r `G.cons` vMergeWith f (G.tail as) (G.tail bs)
             GT -> case f Nothing (Just b) of
                    Nothing -> vMergeWith f as (G.tail bs)
-                   Just r -> r `G.cons` vMergeWith f as (G.tail bs)
+                   Just r  -> r `G.cons` vMergeWith f as (G.tail bs)
 
 -- | Alter the 'Chunk' with the given index in a vector of 'Chunk's.
 --
