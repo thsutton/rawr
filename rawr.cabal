@@ -37,11 +37,20 @@ test-suite             properties
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             properties.hs
-  build-depends:
-      base
-    , QuickCheck
-    , containers
-    , rawr
+  build-depends:       base
+                     , QuickCheck
+                     , containers
+                     , rawr
+
+test-suite doctests
+  default-language:    Haskell2010
+  hs-source-dirs:      test
+  type:                exitcode-stdio-1.0
+  ghc-options:         -threaded
+  main-is:             doctests.hs
+  build-depends:       base
+                     , QuickCheck
+                     , doctest >= 0.9
 
 test-suite             zzz-check-hlint
   default-language:    Haskell2010
