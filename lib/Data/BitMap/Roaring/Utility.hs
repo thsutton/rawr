@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Data.BitMap.Roaring.Utility where
 
 import           Data.Bits
