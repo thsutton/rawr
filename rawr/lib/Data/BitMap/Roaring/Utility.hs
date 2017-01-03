@@ -1,12 +1,14 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Data.BitMap.Roaring.Utility where
 
-import Data.Bits
-import Data.Convertible
-import Data.Monoid
-import qualified Data.Vector as V
+import           Data.Bits
+import           Data.Convertible
+import           Data.Monoid
+import qualified Data.Vector                 as V
 import qualified Data.Vector.Algorithms.Heap as VAH
-import qualified Data.Vector.Unboxed as U
-import Data.Word
+import qualified Data.Vector.Generic         as G
+import qualified Data.Vector.Unboxed         as U
+import           Data.Word
 
 -- * Words
 
@@ -24,17 +26,44 @@ combineWord h l = rotate (convert h) (-16) .|. convert l
 
 -- * Vectors
 
-vMerge :: (U.Unbox e, Ord e) => U.Vector e -> U.Vector e -> U.Vector e
-vMerge as bs
-    | U.null as = bs
-    | U.null bs = as
+-- | Merge two sorted vectors.
+--
+-- The right element of a pair which are equal according to 'compare'
+-- will be discarded.
+--
+-- Postcondition: sorted (vMerge xs ys)
+-- Postcondition: length (vMerge xs ys) >= max (length xs) (length ys)
+vMerge :: (G.Vector vector e, Ord e) => vector e -> vector e -> vector e
+vMerge = vMergeWith merge
+  where
+    merge :: Maybe e -> Maybe e -> Maybe e
+    merge Nothing a         = a
+    merge a Nothing         = a
+    merge (Just a) (Just b) = Just a
+
+-- | Merge two sorted vectors.
+vMergeWith
+  :: (G.Vector vector e, G.Vector vector r, Ord e)
+  => (Maybe e -> Maybe e -> Maybe r)
+  -> vector e
+  -> vector e
+  -> vector r
+vMergeWith f as bs
+    | G.null as = G.concatMap (maybe G.empty G.singleton . f Nothing . Just) bs
+    | G.null bs = G.concatMap (\e -> maybe G.empty G.singleton $ f (Just e) Nothing) as
     | otherwise =
-        let a = U.head as
-            b = U.head bs
+        let a = G.head as
+            b = G.head bs
         in case a `compare` b of
-            LT -> a `U.cons` vMerge (U.tail as) bs
-            EQ -> a `U.cons` vMerge (U.tail as) (U.tail bs)
-            GT -> b `U.cons` vMerge as (U.tail bs)
+            LT -> case f (Just a) Nothing of
+                   Nothing -> vMergeWith f (G.tail as) bs
+                   Just r  -> r `G.cons` vMergeWith f (G.tail as) bs
+            EQ -> case f (Just a) (Just b) of
+                   Nothing -> vMergeWith f (G.tail as) (G.tail bs)
+                   Just r -> r `G.cons` vMergeWith f (G.tail as) (G.tail bs)
+            GT -> case f Nothing (Just b) of
+                   Nothing -> vMergeWith f as (G.tail bs)
+                   Just r  -> r `G.cons` vMergeWith f as (G.tail bs)
 
 -- | Alter the 'Chunk' with the given index in a vector of 'Chunk's.
 --
@@ -58,7 +87,9 @@ vAlter f p v = case vLookup p v of
 
 -- | Search for a 'Chunk' with a specific index.
 --
--- TODO(thsutton) better search algorithm.
+-- /O(log n)/
+--
+-- TODO(thsutton) Make the complexity claim be true.
 vLookup :: Ord a => (a -> Bool) -> V.Vector a -> Maybe (Int, a)
 vLookup p v = case V.findIndex p v of
     Nothing -> Nothing

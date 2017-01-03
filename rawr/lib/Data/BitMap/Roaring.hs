@@ -1,23 +1,23 @@
 -- |
--- Module: Data.BitMap.Roaring
+-- Module:      Data.BitMap.Roaring
 -- Description: Compressed bitmap data structure with good performance.
--- Copyright: (c) Thomas Sutton 2015
--- License: BSD3
--- Maintainer: me@thomas-sutton.id.au
--- Stability: experimental
+-- Copyright:   (c) Thomas Sutton 2015
+-- License:     BSD3
+-- Maintainer:  me@thomas-sutton.id.au
+-- Stability:   experimental
 --
 -- A compressed bitmaps with good space and time performance.
 --
 -- These modules are intended to be imported qualified, to avoid name clashes
 -- with Prelude functions, e.g.
 --
--- >  import Data.BitMap.Roaring (BitMap)
+-- >  import           Data.BitMap.Roaring (BitMap)
 -- >  import qualified Data.BitMap.Roaring as Roaring
 --
--- The implementation paritions values into chunks based on their high 16 bits.
--- Chunks are represented differently based on their density: low-density
--- chunks are stored as packed arrays of the low-order bits while high-density
--- chunks are stored as bit vectors.
+-- The implementation partitions values into chunks based on their
+-- high 16 bits. Chunks are represented according to their density:
+-- low-density chunks are stored as packed arrays of the low-order
+-- bits while high-density chunks are stored as bit vectors.
 --
 --    * Samy Chambi, Daniel Lemire, Owen Kaser, Robert Godin,
 --    \"/Better bitmap performance with Roaring bitmaps/\", Software: Practice
@@ -25,19 +25,46 @@
 --
 module Data.BitMap.Roaring where
 
-import Data.Monoid
-import Data.Vector (Vector)
+import           Data.Bits
+import           Data.Monoid
+import           Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
+import           Data.Word
 
-import Data.BitMap.Roaring.Chunk
-import Data.BitMap.Roaring.Utility
+import           Data.BitMap.Roaring.Chunk   (Chunk)
+import qualified Data.BitMap.Roaring.Chunk   as C
+import           Data.BitMap.Roaring.Utility
 
 -- | A set of bits.
 data BitMap = BitMap (Vector Chunk)
-  deriving (Show)
+  deriving (Show, Eq)
 
 type Key = Word32
+
+instance Bits BitMap where
+  bitSize _ = 2^32
+  bitSizeMaybe _ = Just (2^32)
+  isSigned _ = False
+
+  (.&.) = intersection
+  (.|.) = union
+  xor = const -- TODO
+  complement a = a
+
+  shift x i = x
+  rotate x i = x
+
+  zeroBits = BitMap V.empty
+  bit i = singleton (fromIntegral i)
+
+  popCount x = 0
+  testBit x i = False
+  setBit x i = x
+  clearBit x i = x
+  complementBit x i = x
+
+instance FiniteBits BitMap where
+  finiteBitSize _ = 2^32
 
 -- * Query
 
@@ -47,15 +74,15 @@ null (BitMap v) = V.null v
 
 -- | Cardinality of the set.
 size :: BitMap -> Int
-size (BitMap cs) = V.sum $ V.map chunkCardinality cs
+size (BitMap cs) = V.foldl' (\s c-> s + popCount c) 0 cs
 
 -- | Is the value a member of the set?
 member :: Key -> BitMap -> Bool
 member k (BitMap cs) =
     let (i,b) = splitWord k
-    in case vLookup (\c -> i == chunkIndex c) cs of
-        Nothing    -> False
-        Just (_,c) -> chunkGet b c
+    in case vLookup (\c -> i == C.chunkIndex c) cs of
+        Nothing     -> False
+        Just (_, c) -> C.chunkCheck b c
 
 -- | Is this a subset?
 -- @(s1 `isSubsetOf` s2)@ tells whether @s1@ is a subset of @s2.
@@ -88,8 +115,8 @@ singleton k = insert k empty
 insert :: Key -> BitMap -> BitMap
 insert k (BitMap v) =
     let (i,b) = splitWord k
-        f = Just . maybe (chunkNew i b) (chunkSet b)
-        v' = vAlter f (\c -> i == chunkIndex c) v
+        f = Just . maybe (C.chunkNew i b) (C.chunkSet b)
+        v' = vAlter f (\c -> i == C.chunkIndex c) v
     in BitMap v'
 
 -- | Delete a value in the set.
@@ -98,13 +125,13 @@ insert k (BitMap v) =
 delete :: Key -> BitMap -> BitMap
 delete k (BitMap v) =
     let (i,b) = splitWord k
-        v' = vAlter (f b) (\c -> i == chunkIndex c) v
+        v' = vAlter (f b) (\c -> i == C.chunkIndex c) v
     in BitMap v'
   where
     f _ Nothing = Nothing
     f b (Just c) =
-        let c' = chunkClear b c
-        in if 0 == chunkCardinality c'
+        let c' = C.chunkClear b c
+        in if 0 == popCount c'
            then Nothing
            else Just c'
 
@@ -112,20 +139,33 @@ delete k (BitMap v) =
 
 -- | The union of two sets.
 union :: BitMap -> BitMap -> BitMap
-union (BitMap cs) (BitMap ds) = BitMap $ mergeWith f cs ds
+union (BitMap cs) (BitMap ds) =
+    BitMap (vMergeWith merge cs ds)
   where
-    f :: Maybe Chunk -> Maybe Chunk -> Maybe Chunk
-    f Nothing  b        = b
-    f a        Nothing  = a
-    f (Just a) (Just b) = Just $ mergeChunks a b
-
--- | The difference between two sets.
-difference :: BitMap -> BitMap -> BitMap
-difference _ _ = empty
+    merge :: Maybe Chunk -> Maybe Chunk -> Maybe Chunk
+    merge (Just a) (Just b) =
+      let c = a `C.union` b
+      in if C.null c then Nothing else Just c
+    merge (Just a) Nothing = Just a
+    merge Nothing (Just b) = Just b
+    merge Nothing Nothing = Nothing
 
 -- | The intersection of two sets.
 intersection :: BitMap -> BitMap -> BitMap
-intersection _ _ = empty
+intersection (BitMap as) (BitMap bs) =
+    BitMap (vMergeWith merge as bs)
+  where
+    merge (Just a) (Just b) =
+      let c = a `C.intersection` b
+      in if C.null c then Nothing else Just c
+    merge _ _ = Nothing
+
+-- | The difference between two sets.
+difference :: BitMap -> BitMap -> BitMap
+difference (BitMap as) (BitMap bs) =
+    BitMap (vMergeWith merge as bs)
+  where
+    merge _ _ = Nothing
 
 -- * Conversion
 
@@ -147,7 +187,7 @@ toAscList :: BitMap -> [Key]
 toAscList (BitMap cs) = work cs []
   where
     work cs' l | V.null cs' = l
-               | otherwise = let c    = chunkToBits $ V.head cs'
+               | otherwise = let c    = C.toList $ V.head cs'
                                  cs'' = V.tail cs'
                              in work cs'' (l <> c)
 
@@ -163,33 +203,3 @@ toDescList = reverse . toAscList
 -- TODO(thsutton) Implement
 fromAscList :: [Key] -> BitMap
 fromAscList _ = empty
-
--- * Utility
-
-
--- | Merge two 'Vector's of 'Chunk's.
---
--- Precondition: Both vectors are sorted by 'chunkIndex'.
--- Postcondition: Output vector sorted by 'chunkIndex'.
--- Postcondition: length(output) >= max(length(a),length(b))
-mergeWith
-    :: (Maybe Chunk -> Maybe Chunk -> Maybe Chunk)
-    -- ^ Merge two chunks with the same index.
-    -> Vector Chunk
-    -> Vector Chunk
-    -> Vector Chunk
-mergeWith f v1 v2
-    | V.null v1 = v2
-    | V.null v2 = v1
-    | otherwise =
-        let a = V.head v1
-            b = V.head v2
-        in work a v1 b v2
-  where
-    -- Note: we take the head and the *entirety* of each vector; NOT the head
-    -- and the tail!
-    work :: Chunk -> Vector Chunk -> Chunk -> Vector Chunk -> Vector Chunk
-    work a as b bs = case a `compare` b of
-        LT -> a `V.cons` mergeWith f (V.tail as) bs
-        EQ -> mergeChunks a b `V.cons` mergeWith f (V.tail as) (V.tail bs)
-        GT -> b `V.cons` mergeWith f as (V.tail bs)
