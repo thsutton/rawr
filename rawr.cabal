@@ -1,17 +1,24 @@
 name:                rawr
 version:             0.1.0.0
-synopsis:            Roaring Bitmaps compressed bitmap data-structure.
-description:         Roaring Bitmaps compressed bitmap data-structure.
-homepage:            https://github.com/thsutton/rawr/
+synopsis:            An implementation of the roaring bitmaps data structure.
+description:
+  .
+  This is an implementation of the roaring bitmaps data-structure for compressed
+  bitmaps. Roaring bitmaps provide better compression and performance than other
+  compressed bitmaps in many situations.
+  .
+homepage:            https://github.com/thsutton/rawr/#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Thomas Sutton
 maintainer:          me@thomas-sutton.id.au
--- copyright:           
+copyright:           (c) 2018 Thomas Sutton
 category:            Data
 build-type:          Simple
-extra-source-files:  README.md
 cabal-version:       >=1.10
+extra-source-files:
+  README.md
+  stack.yaml
 
 source-repository      HEAD
   type:                git
@@ -21,13 +28,9 @@ library
   default-language:    Haskell2010
   hs-source-dirs:      lib
   exposed-modules:
-    Data.BitMap.Roaring
-    Data.BitMap.Roaring.Chunk
-    Data.BitMap.Roaring.Utility
+    Data.Rawr
   build-depends:
-      base >=4.7 && <4.8
-    , convertible
-    , containers
+      base >= 4.7 && < 5
     , vector
     , vector-algorithms
 
@@ -36,8 +39,10 @@ test-suite             properties
   default-language:    Haskell2010
   hs-source-dirs:      test
   main-is:             properties.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base
     , QuickCheck
     , containers
+    , quickcheck-instances
     , rawr

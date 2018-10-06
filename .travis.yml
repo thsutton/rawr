@@ -1,8 +1,54 @@
-language: haskell
-ghc: 7.8
+language: generic
+
+# Use the docker infrastructure
+sudo: false
+
+# Cache the installed Haskell stuff
+cache:
+  directories:
+    - $HOME/.stack
+
 notifications:
   email:
     on_success: change
     on_failure: change
+
+env:
+  global:
+    - PKG_CONFIG_PATH=$HOME/.stack/local/lib/pkgconfig
+    - LD_LIBRARY_PATH=$HOME/.stack/local/lib
+    - LD_RUN_PATH=$HOME/.stack/local/lib
+    - CFLAGS=-I$HOME/.stack/local/include
+    - LDFLAGS=-L$HOME/.stack/local/lib
+  matrix:
+    - STACK_RESOLVER=lts-9
+    - STACK_RESOLVER=lts-11
+    - STACK_RESOLVER=lts-12
+    - STACK_RESOLVER=nightly
+
+matrix:
+  fast_finish: true
+  allow_failures:
+      - env: STACK_RESOLVER=nightly
+
+# Download the latest stack command.
 before_install:
-  - cabal sandbox init
+    - travis_retry wget https://www.stackage.org/stack/linux-x86_64
+    - tar -xvf linux-x86_64
+    - mv stack-*-linux-x86_64/stack stack
+    - travis_retry ./stack --no-terminal --resolver $STACK_RESOLVER setup
+
+install:
+    - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
+
+# Here starts the actual work to be performed for the package under test; any
+# command which exits with a non-zero exit code causes the build to fail.
+script:
+    - ./stack --no-terminal --resolver $STACK_RESOLVER sdist
+    - tar -xzf $(./stack --no-terminal --resolver $STACK_RESOLVER path --dist-dir)/rawr-*.tar.gz
+    - cd rawr-*
+    - travis_retry ../stack --no-terminal --resolver $STACK_RESOLVER setup
+    - travis_retry ../stack --no-terminal --resolver $STACK_RESOLVER install --only-snapshot -j4 --verbosity info
+    - ../stack --no-terminal --resolver $STACK_RESOLVER build
+    - ../stack --no-terminal --resolver $STACK_RESOLVER haddock --no-haddock-deps
+    - ../stack --no-terminal --resolver $STACK_RESOLVER test
