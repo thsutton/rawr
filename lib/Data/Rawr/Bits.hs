@@ -1,5 +1,6 @@
 module Data.Rawr.Bits where
 
+import Data.Coerce
 import Data.Bits
 import Data.Word
 

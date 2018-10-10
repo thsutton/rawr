@@ -1,17 +1,20 @@
 {-# LANGUAGE BangPatterns, MagicHash #-}
 module Data.Rawr where
 
-import           Data.Bits
+import           Data.Bits (Bits)
+import           Data.Maybe
 import qualified Data.Vector as V
 import           Data.Vector (Vector)
+import           Data.Word
 
 import           Data.Rawr.Bits
 import           Data.Rawr.Block (Block)
 import qualified Data.Rawr.Block as B
 
+
 -- | A compressed bitmap.
 newtype Bitmap = BM (Vector Block)
-  deriving (Eq, Ord)
+  deriving (Eq)
 
 zeroBits :: Bitmap
 zeroBits = BM V.empty
@@ -28,10 +31,11 @@ clearBit bm w = bm
 complementBit :: Bitmap -> Word32 -> Bitmap
 complementBit bm w = bm
 
-testBit :: Bitmap -> Word32 -> Boolean 
+testBit :: Bitmap -> Word32 -> Bool
 testBit bm w =
   let ix = wordIndex w
       v = wordValue w
-  in fromMaybe False $ (Block.testBit v <$> findBlock bm ix)
+  in fromMaybe False $ (flip B.testBit v <$> findBlock bm ix)
 
 findBlock :: Bitmap -> Index -> Maybe Block
+findBlock (BM blocks) ix = Nothing

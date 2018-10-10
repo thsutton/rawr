@@ -1,9 +1,10 @@
 module Data.Rawr.Sparse where
 
 import           Data.Bits
+import           Data.Coerce
 import           Data.Maybe
-import           Data.Vector.Unboxed (Vector)
-import qualified Data.Vector.Unboxed as V
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 import           Data.Word
 
 import Data.Rawr.Bits
@@ -11,6 +12,9 @@ import Data.Rawr.Bits
 -- | A Vector of 'Value's stored in sorted order.
 newtype SparseVector = SV (Vector Word16)
   deriving (Eq, Ord)
+
+values :: SparseVector -> Vector Value
+values (SV v) = (coerce v :: Vector Value)
 
 empty :: SparseVector
 empty = SV (V.empty)

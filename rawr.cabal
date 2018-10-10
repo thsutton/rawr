@@ -29,6 +29,11 @@ library
   hs-source-dirs:      lib
   exposed-modules:
     Data.Rawr
+  other-modules:
+    Data.Rawr.Bits
+    Data.Rawr.Block
+    Data.Rawr.Dense
+    Data.Rawr.Sparse
   build-depends:
       base >= 4.7 && < 5
     , vector

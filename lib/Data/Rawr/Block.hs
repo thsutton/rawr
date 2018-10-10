@@ -14,6 +14,7 @@ import qualified Data.Rawr.Sparse as S
 data Block
   = Dense Index DenseVector
   | Sparse Index SparseVector
+  deriving (Eq)
 
 threshold :: Int
 threshold = 2^16
@@ -27,8 +28,8 @@ testBit :: Block -> Value -> Bool
 testBit (Dense _ d) v = D.testBit d v
 testBit (Sparse _ d) v = error "testBit unimplemented on sparse blocks"
 
-setBit :: Block -> Value -> Bool
+setBit :: Block -> Value -> Block
 setBit (Dense i d) v = Dense i (D.setBit d v)
 setBit (Sparse i d) v =
   let d' = S.setBit d v
-  in if (S.popCount d' >= threshold) then Dense i (D.pack d') else Sparse i d'
+  in if (S.popCount d' >= threshold) then Dense i (D.pack $ S.values d') else Sparse i d'
