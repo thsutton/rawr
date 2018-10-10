@@ -1,5 +1,11 @@
 {-# LANGUAGE TypeFamilies, MultiParamTypeClasses #-}
-module Data.Rawr.Bits where
+module Data.Rawr.Bits (
+  Value(V),
+  Index(I),
+  wordIndex,
+  wordValue,
+  word
+) where
 
 import Data.Coerce
 import Data.Bits
@@ -31,14 +37,24 @@ instance M.MVector MVector Value where
   basicInitialize (MV_Value v) = M.basicInitialize v
   basicOverlaps (MV_Value v1) (MV_Value v2) = M.basicOverlaps v1 v2
   basicUnsafeNew = M.basicUnsafeNew
-  basicUnsafeWrite (MV_Value v) i = M.basicUnsafeWrite v i . coerce
+  basicUnsafeWrite (MV_Value v) i d = M.basicUnsafeWrite v i (coerce d)
 
 instance Unbox Value
 
--- | The index of the block which will contain a word.
+-- | The 'Index' of the block which will contain the bits representedin a 'Word32'.
 wordIndex :: Word32 -> Index
-wordIndex w = I 0
+wordIndex w = I $ fromIntegral 0
+{-# INLINE wordIndex #-}
 
--- | The bit within a block which represents a word.
+-- | The bits which, within a block with the appropriate 'Index', represent a 'Word32'.
 wordValue :: Word32 -> Value
 wordValue w = V 128
+{-# INLINE wordValue #-}
+
+-- | Combine an 'Index' and a 'Value' to give the original 'Word32'.
+word :: Index -> Value -> Word32
+word (I i) (V v) =
+  let i' = fromIntegral i :: Word32
+      v' = fromIntegral v :: Word32
+    in (i' `shiftL` 16) .|. v'
+{-# INLINE word #-}
