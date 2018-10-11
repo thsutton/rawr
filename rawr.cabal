@@ -42,12 +42,21 @@ library
 test-suite             properties
   type:                exitcode-stdio-1.0
   default-language:    Haskell2010
-  hs-source-dirs:      test
+  hs-source-dirs:
+    test
+    lib
   main-is:             properties.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base
-    , QuickCheck
     , containers
-    , quickcheck-instances
+    , hedgehog
     , rawr
+    , vector
+  other-modules:
+    Data.Rawr
+    Data.Rawr.Bits
+    Data.Rawr.Block
+    Data.Rawr.Dense
+    Data.Rawr.Sparse
+    Generators

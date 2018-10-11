@@ -31,6 +31,7 @@ prop_remove_length b w =
       delta = count b - count b'
   in delta == 0 || delta == 1
 
+
 --
 -- Use Template Haskell to automatically run all of the properties above.
 --

@@ -3,14 +3,14 @@ module Data.Rawr.Sparse where
 import           Data.Bits
 import           Data.Coerce
 import           Data.Maybe
-import           Data.Vector (Vector)
-import qualified Data.Vector as V
+import           Data.Vector.Unboxed (Vector)
+import qualified Data.Vector.Unboxed as V
 import           Data.Word
 
 import Data.Rawr.Bits
 
 -- | A Vector of 'Value's stored in sorted order.
-newtype SparseVector = SV (Vector Word16)
+newtype SparseVector = SV (Vector Value)
   deriving (Eq, Ord)
 
 values :: SparseVector -> Vector Value
@@ -23,7 +23,7 @@ empty = SV (V.empty)
 --
 -- TODO: A better search
 findBit :: SparseVector -> Value -> Maybe Int
-findBit (SV d) (V v) = V.elemIndex v d
+findBit (SV d) v = V.elemIndex v d
 
 testBit :: SparseVector -> Value -> Bool
 testBit d v = isJust $ findBit d v
