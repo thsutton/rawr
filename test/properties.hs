@@ -9,6 +9,7 @@ import           System.Exit
 import           System.IO
 
 import Data.Rawr
+import qualified Data.Rawr.Bits as Bits
 
 import Generators
 
@@ -17,6 +18,12 @@ prop_reverse =
   property $ do
     xs <- forAll $ Gen.list (Range.linear 0 100) Gen.alpha
     (reverse $ reverse xs) === xs
+
+prop_word_splitting :: Property
+prop_word_splitting =
+  property $ do
+    w <- forAll $ Gen.word32 (Range.linear 0 (2^32 - 1))
+    Bits.word (Bits.wordIndex w) (Bits.wordValue w) === w
 
 tests :: IO Bool
 tests =

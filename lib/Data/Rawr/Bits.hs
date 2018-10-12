@@ -43,18 +43,15 @@ instance Unbox Value
 
 -- | The 'Index' of the block which will contain the bits representedin a 'Word32'.
 wordIndex :: Word32 -> Index
-wordIndex w = I $ fromIntegral 0
+wordIndex w = I . fromIntegral . (flip shiftR 16) $ w
 {-# INLINE wordIndex #-}
 
 -- | The bits which, within a block with the appropriate 'Index', represent a 'Word32'.
 wordValue :: Word32 -> Value
-wordValue w = V 128
+wordValue w = V . fromIntegral . (.&. 0xffff) $ w
 {-# INLINE wordValue #-}
 
 -- | Combine an 'Index' and a 'Value' to give the original 'Word32'.
 word :: Index -> Value -> Word32
-word (I i) (V v) =
-  let i' = fromIntegral i :: Word32
-      v' = fromIntegral v :: Word32
-    in (i' `shiftL` 16) .|. v'
+word (I i) (V v) = ((fromIntegral i) `shiftL` 16) .|. (fromIntegral v)
 {-# INLINE word #-}
