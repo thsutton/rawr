@@ -19,6 +19,9 @@ data Block
 threshold :: Int
 threshold = 2^16
 
+empty :: Index -> Block
+empty ix = Sparse ix S.empty
+
 -- | The high-order bits for the words in a particular 'Block'.
 index :: Block -> Index
 index (Dense ix _) = ix
@@ -33,3 +36,8 @@ setBit (Dense i d) v = Dense i (D.setBit d v)
 setBit (Sparse i d) v =
   let d' = S.setBit d v
   in if (S.popCount d' >= threshold) then Dense i (D.pack $ S.values d') else Sparse i d'
+
+-- | Extract the 'Word32's stored in a 'Chunk'.
+blockToBits :: Block -> [Word32]
+blockToBits (Sparse i vs) = word i <$> (S.toList vs)
+blockToBits (Dense i vs) = word i <$> (D.toList vs)

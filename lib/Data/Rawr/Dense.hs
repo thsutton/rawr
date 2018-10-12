@@ -20,6 +20,9 @@ vector_length = 1024
 empty :: DenseVector
 empty = DV (V.replicate vector_length 0)
 
+toList :: DenseVector -> [Value]
+toList (DV v) = []
+
 pack :: V.Vector v Value => v Value -> DenseVector
 pack = V.foldl setBit empty
 

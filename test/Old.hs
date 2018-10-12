@@ -15,11 +15,6 @@ import qualified Data.BitMap.Roaring.Utility as R
 
 -- * Check utility functions
 
--- | id == uncurry combineWord . splitWord
-prop_splitWord_combineWord_id :: Word32 -> Bool
-prop_splitWord_combineWord_id w =
-    w == (uncurry R.combineWord . R.splitWord $ w)
-
 -- | The empty set is null.
 prop_null_empty :: Bool
 prop_null_empty = R.null R.empty

@@ -14,7 +14,11 @@ newtype SparseVector = SV (Vector Value)
   deriving (Eq, Ord)
 
 values :: SparseVector -> Vector Value
-values (SV v) = (coerce v :: Vector Value)
+values (SV v) = v
+{-# INLINE values #-}
+
+toList :: SparseVector -> [Value]
+toList (SV v) = V.toList v
 
 empty :: SparseVector
 empty = SV (V.empty)

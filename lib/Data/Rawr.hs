@@ -23,7 +23,10 @@ bit :: Word32 -> Bitmap
 bit = setBit zeroBits
 
 setBit :: Bitmap -> Word32 -> Bitmap
-setBit bm w = bm
+setBit bm w =
+  let ix = wordIndex w
+      v  = wordValue w
+  in withBlock bm ix (flip B.setBit v)
 
 clearBit :: Bitmap -> Word32 -> Bitmap
 clearBit bm w = bm
@@ -39,3 +42,21 @@ testBit bm w =
 
 findBlock :: Bitmap -> Index -> Maybe Block
 findBlock (BM blocks) ix = Nothing
+
+withBlock :: Bitmap -> Index -> (Block -> Block) -> Bitmap
+withBlock bm ix f =
+  case findBlock bm ix of
+    Nothing -> insertBlock bm (f $ B.empty ix)
+    Just b  -> replaceBlock bm (f b)
+
+insertBlock :: Bitmap -> Block -> Bitmap
+insertBlock bm b = bm
+
+replaceBlock :: Bitmap -> Block -> Bitmap
+replaceBlock bm b = bm
+
+fromList :: [Word32] -> Bitmap
+fromList = foldl (setBit) zeroBits
+
+toAscList :: Bitmap -> [Word32]
+toAscList (BM cs) = concatMap B.blockToBits $ V.toList cs
