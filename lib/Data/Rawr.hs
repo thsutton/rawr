@@ -5,12 +5,17 @@ import           Data.Bits (Bits)
 import           Data.Maybe
 import qualified Data.Vector as V
 import           Data.Vector (Vector)
+import           Data.Version (Version)
 import           Data.Word
 
 import           Data.Rawr.Bits
 import           Data.Rawr.Block (Block)
 import qualified Data.Rawr.Block as B
 
+import qualified Paths_rawr as Paths
+
+version :: Version
+version = Paths.version
 
 -- | A compressed bitmap.
 newtype Bitmap = BM (Vector Block)
